@@ -103,3 +103,12 @@ pwsh -File scripts/build.ps1 -EscrcpyRoot E:\01.Dev\github-back\escrcpy
 - 会话完成回调统一销毁容器与悬浮栏；本机清理为幂等操作，移除设备窗口映射并释放原生事件钩子。重开同设备前也立即清理旧窗口。
 - 系统关闭、悬浮栏关闭及主程序退出共用关闭入口，先取消对应会话、等待 scrcpy 正常退出，再销毁窗口；自然断开、启动失败同样不保留结果窗口，执行结果仍由任务中心保存。
 - 按用户偏好直接编译打包，不扩大测试。旧版本进程创建的残留窗口需退出旧版清理，新版不会接管旧进程的窗口。
+
+## 2026-11-10 五平台发布（0.1.5）
+
+- 用户确认构建并发布 Windows x64、macOS x64/ARM64、Linux x64/ARM64 五个平台。
+- 直接复制 escrcpy 提交 `3a73e0d4de58a4674dddd61fc43956b4882c8bec` 的 extra 资源，使用 `resources/manifest.json` 固定 SHA-256，Git 禁止转换资源行尾。
+- 借用 GoIM 的原生 runner 矩阵、固定版本 Actions 与归档/架构辅助函数；省去不相关的安装器和重复 UI 测试。打包入口统一为 `cmd/package`，PowerShell 脚本调用同一入口，版本集中到 `internal/buildinfo`。
+- macOS 生成 `.app`，工具位于 Contents/Resources，支持通用 adb，逐工具与应用 ad-hoc 签名。Windows 原版 adb/fastboot 为 x86，应用/scrcpy 为 x64；允许系统兼容运行并实际执行版本检查。
+- macOS/Linux 沿用独立 scrcpy 窗口，本次不实现跨平台窗口内嵌。macOS 未公证，手机交互待各平台实测。
+- 发布汇总五个归档并核验架构标记、可执行权限、来源提交、逐文件与归档 SHA-256，全部构建成功才创建 Release。

@@ -1,0 +1,203 @@
+{
+  "version": "4.1",
+  "repository": "https://github.com/viarotel-org/escrcpy",
+  "commit": "3a73e0d4de58a4674dddd61fc43956b4882c8bec",
+  "files": [
+    {
+      "path": "common/gnirehtet/gnirehtet.apk",
+      "sha256": "c1ac2b869a48e3c836046aac5a168f3ade510288f3304a87ddb671315c564b9a"
+    },
+    {
+      "path": "common/locales/ar.json",
+      "sha256": "0b0f6eaf3a961e1bf67e6f4d78ff05c5f21e5568beac5d25bf233afe579a8a59"
+    },
+    {
+      "path": "common/locales/en-US.json",
+      "sha256": "e4db8f7db95e291ce86a5432af4dd8581e117b7e5e157f1d3d570de5dbe2126d"
+    },
+    {
+      "path": "common/locales/ja-JP.json",
+      "sha256": "d66a46d381b9a54e28163d2e1ee49eaa825358215129c86d16c2b0176bfdfd3f"
+    },
+    {
+      "path": "common/locales/ru-RU.json",
+      "sha256": "700128b0194c6acdf372f96733d2fa37a50e5362edab7756d7f3055fbb57b32c"
+    },
+    {
+      "path": "common/locales/zh-CN.json",
+      "sha256": "e17ec1bb81a2c395a9c21c5ce8ab49e81dd0ba43eed25bebec3482e9fa2e4585"
+    },
+    {
+      "path": "common/locales/zh-TW.json",
+      "sha256": "058514b605c12ecab5d26588fec359e3ad58e338af7bd11fc742b90b29c4894f"
+    },
+    {
+      "path": "common/scrcpy/disconnected.png",
+      "sha256": "e394873cd3e2cc3ab0cca6212b10ed2a8a0fad11a05675c8a9fa6f26f3ae12c0"
+    },
+    {
+      "path": "common/scrcpy/scrcpy-server",
+      "sha256": "deacb991ed2509715160ffdc7907e47b4160eb30d1566217e9047fd5b8850cae"
+    },
+    {
+      "path": "common/scrcpy/scrcpy.png",
+      "sha256": "8853d63e845a6dc516f25aecee90858450e4b958da511dfc28e3800009f7e48a"
+    },
+    {
+      "path": "common/wscrcpy/scrcpy-server",
+      "sha256": "deacb991ed2509715160ffdc7907e47b4160eb30d1566217e9047fd5b8850cae"
+    },
+    {
+      "path": "common/yadb/yadb",
+      "sha256": "f1d12e49c94fd227b900b7cfcf74ca9dcff57dbf4aa3c43591ebe742306b1796"
+    },
+    {
+      "path": "linux-arm64/scrcpy/adb",
+      "sha256": "0b8ee2861789606559999434b824b4c5fc9c92fb5a9bbc8d7d53a51e89920310"
+    },
+    {
+      "path": "linux-arm64/scrcpy/fastboot",
+      "sha256": "72d4117f1d9c8ccdc5592dc72523ad8cf8abb0ce2b4e471ab5cb9246a3674539"
+    },
+    {
+      "path": "linux-arm64/scrcpy/icon.png",
+      "sha256": "1138410725e595dc4d114f346c2256bb30ae6c19b117887d2ecf04563d12a5a8"
+    },
+    {
+      "path": "linux-arm64/scrcpy/scrcpy",
+      "sha256": "b731d3993757899cb352c640f8934f801e8a46752bb90cad9a5971aae15c2488"
+    },
+    {
+      "path": "linux-x64/gnirehtet/gnirehtet",
+      "sha256": "8acee2e88dc5653db08a61e1a14e0ab86247524e366a482a883940220a2f4ea9"
+    },
+    {
+      "path": "linux-x64/scrcpy/adb",
+      "sha256": "00108217733707a40debfc92c86d4232fd6e68870be5966515d74c071193ea90"
+    },
+    {
+      "path": "linux-x64/scrcpy/fastboot",
+      "sha256": "5d9bd46fc1c1b4685aacb5493fd497962823a236ba7ece46f078223aea5e7c00"
+    },
+    {
+      "path": "linux-x64/scrcpy/scrcpy",
+      "sha256": "e8fbbbfd586670c6dfa959461ec9367cd8b186fec8d43275c1d8b65fbd1a632b"
+    },
+    {
+      "path": "linux/tray/icon.ico",
+      "sha256": "b8325e6ffd5223a5278479752a50b63f6325f0b807d88353838b7fd7e08b0ebe"
+    },
+    {
+      "path": "linux/tray/icon.png",
+      "sha256": "1138410725e595dc4d114f346c2256bb30ae6c19b117887d2ecf04563d12a5a8"
+    },
+    {
+      "path": "mac-arm64/gnirehtet/gnirehtet",
+      "sha256": "1c02b3785a46749e5b0f3aacbdf6ff1b9dbe8297e754b3c40c25f379ca6f2f06"
+    },
+    {
+      "path": "mac-arm64/scrcpy/adb",
+      "sha256": "9fdf861259dc807937b13afdd5f053c7fda9f3b7726933fe0e0f45130ecb8dc7"
+    },
+    {
+      "path": "mac-arm64/scrcpy/fastboot",
+      "sha256": "b635fe0fd3aadf83451b4166332bd6d0e218304265f7e892021a5a6d26b2b3d9"
+    },
+    {
+      "path": "mac-arm64/scrcpy/scrcpy",
+      "sha256": "e318a04c11986d9afa7f438a81cc9c7cc0f3ea66945db1e127f373eb02f4e1d3"
+    },
+    {
+      "path": "mac-x64/gnirehtet/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "mac-x64/scrcpy/adb",
+      "sha256": "9fdf861259dc807937b13afdd5f053c7fda9f3b7726933fe0e0f45130ecb8dc7"
+    },
+    {
+      "path": "mac-x64/scrcpy/fastboot",
+      "sha256": "b635fe0fd3aadf83451b4166332bd6d0e218304265f7e892021a5a6d26b2b3d9"
+    },
+    {
+      "path": "mac-x64/scrcpy/scrcpy",
+      "sha256": "3f2c348954c2b19be55def5b72b9d3274dfe5eddee99a060e0d7469f7b3ef159"
+    },
+    {
+      "path": "mac/tray/iconTemplate.png",
+      "sha256": "bfee38f4584c41789c5fe6a86e12a46912acfe1ba6edc908812ff6b81be97d2f"
+    },
+    {
+      "path": "mac/tray/iconTemplate@2x.png",
+      "sha256": "a562a15419e9a9eadca32980bd6526186768a7f355621e91acaf978cb435fd80"
+    },
+    {
+      "path": "mac/tray/iconTemplate@4x.png",
+      "sha256": "f602ed62d0937e81087b49ec807ed1e134277ccf0f6714a29dc7eaa1bcbb7576"
+    },
+    {
+      "path": "win/gnirehtet/gnirehtet-run.cmd",
+      "sha256": "d6f5fa61274fae5a47490896a75b8ba72b1f0bd5cf7d458fcdfac1c192c223b5"
+    },
+    {
+      "path": "win/gnirehtet/gnirehtet.exe",
+      "sha256": "d5daefbb48143fbc2b01f24be79135fc11959fe4553b00f5a454801ed5ff720d"
+    },
+    {
+      "path": "win/scrcpy/adb.exe",
+      "sha256": "957e46b8615f7af5b7292a2ddabe98d2e61940c3fb2b0545756507f080613e71"
+    },
+    {
+      "path": "win/scrcpy/AdbWinApi.dll",
+      "sha256": "120bef587119c6cb926b86b9be90fdfbce38937588eae28cd91a94ce63c7b965"
+    },
+    {
+      "path": "win/scrcpy/AdbWinUsbApi.dll",
+      "sha256": "6ca69a2ca0e31309c087d288f058977d421ad03500e4c3e1dbd981241a069c60"
+    },
+    {
+      "path": "win/scrcpy/avcodec-62.dll",
+      "sha256": "7179de2b132e78eb0a76458a0a3859dfe1edcbb6d2eeb4a456f03f7ae96d5b66"
+    },
+    {
+      "path": "win/scrcpy/avformat-62.dll",
+      "sha256": "7232316acce00371d89f589748b570d95885ea6bbfc1972a0a9d3b884903eee1"
+    },
+    {
+      "path": "win/scrcpy/avutil-60.dll",
+      "sha256": "3d6170dd68549c6f39b8d8710a37f79d9678905df705a8b0a6bc7ea9037daddf"
+    },
+    {
+      "path": "win/scrcpy/fastboot.exe",
+      "sha256": "561bec25f791d2ee75ed57ac84a09960c9fadb62f531240a6896fba1cb091d1d"
+    },
+    {
+      "path": "win/scrcpy/libusb-1.0.dll",
+      "sha256": "8ec130918a476b0dbd114c803e71314360608ceabdd2b6f38c83f6f208c608e0"
+    },
+    {
+      "path": "win/scrcpy/scrcpy.exe",
+      "sha256": "575ca1284345c7b3975585bc61b66d564a9a4f1ecb28fbb4c599c92a124054a9"
+    },
+    {
+      "path": "win/scrcpy/SDL3.dll",
+      "sha256": "0619eb2da6032984dc6e2098897aeacdbd66b0415bb87bc03e628159ba60b15d"
+    },
+    {
+      "path": "win/scrcpy/swresample-6.dll",
+      "sha256": "4cc809d2cd822e186906fbc9d8a0acffa937e35de1282b2e2ab7346cfed96fed"
+    },
+    {
+      "path": "win/tray/icon.ico",
+      "sha256": "b8325e6ffd5223a5278479752a50b63f6325f0b807d88353838b7fd7e08b0ebe"
+    },
+    {
+      "path": "win/tray/icon.png",
+      "sha256": "1138410725e595dc4d114f346c2256bb30ae6c19b117887d2ecf04563d12a5a8"
+    },
+    {
+      "path": "win/vbs/create-desktop-shortcuts.vbs",
+      "sha256": "6e2cb854bb96942357380f6384f307e5391bd148b099e8fe507ff677dcad0354"
+    }
+  ]
+}
