@@ -10,7 +10,7 @@ try {
         go test ./... -count=1
         if ($LASTEXITCODE) { throw 'go test failed' }
     }
-    $taskName = 'Go-Scopy-0.1.1-windows-x64'
+    $taskName = 'Go-Scopy-0.1.4-windows-x64'
     $taskPackage = Join-Path $taskRoot "dist/$taskName"
     New-Item -ItemType Directory -Force -Path $taskPackage | Out-Null
     & (Join-Path $PSScriptRoot 'fetch-tools.ps1') -Destination (Join-Path $taskPackage 'tools/scrcpy') -Archive $ToolArchive -EscrcpyRoot $EscrcpyRoot

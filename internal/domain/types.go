@@ -1,7 +1,10 @@
 // Package domain defines the desktop application's backend contract.
 package domain
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type Device struct {
 	Serial, Model, Product, State, Connection string
@@ -82,4 +85,16 @@ type Backend interface {
 	Install(serial, apk string)
 	Save(Settings)
 	Close()
+}
+
+// SessionHost owns the native container while the backend owns scrcpy's process.
+type SessionHost interface {
+	Attach(context.Context, int) error
+	Done() <-chan struct{}
+	Finished(error)
+}
+
+type HostedBackend interface {
+	StartHosted(string, Options, bool, SessionHost)
+	Key(string, string)
 }

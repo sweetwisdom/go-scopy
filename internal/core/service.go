@@ -380,7 +380,28 @@ func (s *Service) output(serial, ext string) (string, error) {
 }
 
 func (s *Service) Start(serial string, options domain.Options, record bool) {
+	s.start(serial, options, record, nil)
+}
+
+func (s *Service) StartHosted(serial string, options domain.Options, record bool, host domain.SessionHost) {
+	s.start(serial, options, record, host)
+}
+
+func (s *Service) start(serial string, options domain.Options, record bool, host domain.SessionHost) {
 	s.submit("投屏 · "+serial, func(ctx context.Context) (detail, path string, err error) {
+		if host != nil {
+			defer func() { host.Finished(err) }()
+			workCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			go func() {
+				select {
+				case <-host.Done():
+					cancel()
+				case <-workCtx.Done():
+				}
+			}()
+			ctx = workCtx
+		}
 		if err = s.online(serial); err != nil {
 			return
 		}
@@ -405,7 +426,15 @@ func (s *Service) Start(serial string, options domain.Options, record bool) {
 				return
 			}
 		}
-		p, err := s.tool.Start(serial, options, path)
+		if err = ctx.Err(); err != nil {
+			return "", path, err
+		}
+		var p *tools.Process
+		if host == nil {
+			p, err = s.tool.Start(serial, options, path)
+		} else {
+			p, err = s.tool.StartHosted(serial, options, path)
+		}
 		if err != nil {
 			if path != "" {
 				os.Remove(path)
@@ -418,6 +447,23 @@ func (s *Service) Start(serial string, options domain.Options, record bool) {
 		s.state.Sessions[serial] = domain.Session{Serial: serial, Status: "running", Recording: path, Started: time.Now()}
 		s.mu.Unlock()
 		s.wake()
+		if host != nil {
+			attachCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+			attached := make(chan error, 1)
+			go func() { attached <- host.Attach(attachCtx, p.Cmd.Process.Pid) }()
+			select {
+			case err = <-attached:
+			case <-p.Done:
+				cancel()
+				<-attached
+				err = errors.New("scrcpy 在画面就绪前退出：" + strings.TrimSpace(p.Output.String()))
+			}
+			cancel()
+			if err != nil {
+				stopProcess(p)
+				return "", path, fmt.Errorf("投屏窗口嵌入失败：%w", err)
+			}
+		}
 		if closed {
 			stopProcess(p)
 		}
@@ -438,6 +484,23 @@ func (s *Service) Start(serial string, options domain.Options, record bool) {
 			return "录屏已保存", path, nil
 		}
 		return "投屏已结束", "", nil
+	})
+}
+
+func (s *Service) Key(serial, action string) {
+	keys := map[string]string{"back": "4", "home": "3", "recents": "187", "menu": "82", "volume-up": "24", "volume-down": "25", "sleep": "223", "wake": "224"}
+	s.submit("手机操作 · "+action, func(ctx context.Context) (string, string, error) {
+		key, ok := keys[action]
+		if !ok {
+			return "", "", errors.New("不支持的手机操作")
+		}
+		if err := s.online(serial); err != nil {
+			return "", "", err
+		}
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		_, err := s.tool.Device(ctx, serial, "shell", "input", "keyevent", key)
+		return "操作已发送", "", err
 	})
 }
 

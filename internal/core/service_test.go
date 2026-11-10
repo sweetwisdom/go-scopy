@@ -170,6 +170,33 @@ func TestStartupFailureReleasesDeviceSession(t *testing.T) {
 	}
 }
 
+type startupHost struct{ finished chan error }
+
+func (*startupHost) Attach(ctx context.Context, _ int) error { <-ctx.Done(); return ctx.Err() }
+func (*startupHost) Done() <-chan struct{}                   { return nil }
+func (h *startupHost) Finished(err error)                    { h.finished <- err }
+
+func TestHostedStartupFailureReleasesContainer(t *testing.T) {
+	s := testService(t)
+	h := &startupHost{finished: make(chan error, 1)}
+	s.StartHosted("test-serial", s.State().Settings.Defaults, false, h)
+	task := taskResult(t, s)
+	if task.Status != "error" || !strings.Contains(task.Detail, "deliberate scrcpy startup failure") {
+		t.Fatal(task)
+	}
+	select {
+	case err := <-h.finished:
+		if err == nil {
+			t.Fatal("container did not receive startup error")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("container left waiting after process exit")
+	}
+	if len(s.State().Sessions) != 0 {
+		t.Fatal("failed hosted session was retained")
+	}
+}
+
 func TestUnauthorizedDeviceRejectsOperation(t *testing.T) {
 	s := testService(t)
 	s.state.Devices[0].State = "unauthorized"
