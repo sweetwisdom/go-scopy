@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="tile" x1="32" y1="16" x2="224" y2="248" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#387BFF"/>
+      <stop offset="1" stop-color="#1745CD"/>
+    </linearGradient>
+    <linearGradient id="phone" x1="144" y1="112" x2="208" y2="216" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B5FFF0"/>
+      <stop offset="1" stop-color="#53DBDA"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#tile)"/>
+  <path d="M64 56H178C192 56 200 64 200 78V114H178V80C178 77 177 76 174 76H68C65 76 64 77 64 80V144C64 147 65 148 68 148H125V170H64C50 170 42 162 42 148V78C42 64 50 56 64 56Z" fill="#FFFFFF"/>
+  <rect x="92" y="170" width="20" height="14" rx="3" fill="#FFFFFF"/>
+  <rect x="76" y="184" width="52" height="10" rx="5" fill="#FFFFFF"/>
+  <rect x="138" y="103" width="78" height="119" rx="20" fill="#133DA9" fill-opacity="0.28"/>
+  <rect x="133" y="96" width="78" height="119" rx="20" fill="url(#phone)"/>
+  <rect x="143" y="106" width="58" height="99" rx="11" fill="#123B9E"/>
+  <rect x="159" y="106" width="26" height="7" rx="3.5" fill="#B5FFF0"/>
+  <path d="M157 179C153 179 150 174 153 170L175 148H165C158 148 158 138 165 138H186C189 138 191 140 191 143V164C191 171 181 171 181 164V155L161 176C160 178 158 179 157 179Z" fill="#B5FFF0"/>
+</svg>
