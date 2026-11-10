@@ -1,0 +1,5 @@
+[app]
+name = "Go-Scopy"
+id = "dev.goscopy.desktop"
+package = "./cmd/go-scopy"
+icon = "internal/brand/assets/icon.png"
