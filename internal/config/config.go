@@ -4,8 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/go-scopy/go-scopy/internal/domain"
 )
@@ -71,6 +76,28 @@ func Validate(s domain.Settings) error {
 		if err := ValidateOptions(o); err != nil {
 			return err
 		}
+	}
+	for serial, name := range s.DeviceNames {
+		if strings.TrimSpace(serial) == "" || utf8.RuneCountInString(name) > 40 || strings.IndexFunc(name, unicode.IsControl) >= 0 {
+			return errors.New("设备备注最多 40 个字符，且不能包含换行或控制字符")
+		}
+	}
+	for address := range s.SavedWireless {
+		if err := ValidateDeviceAddress(address); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ValidateDeviceAddress(address string) error {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || host == "" || strings.ContainsAny(host, " \t\n\r") {
+		return errors.New("请输入有效的设备 IP:端口，例如 192.168.1.20:5555")
+	}
+	p, err := strconv.Atoi(port)
+	if err != nil || p < 1 || p > 65535 {
+		return errors.New("端口应为 1–65535")
 	}
 	return nil
 }
