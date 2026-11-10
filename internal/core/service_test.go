@@ -23,6 +23,26 @@ func TestMain(m *testing.M) {
 		a := os.Args[1:]
 		joined := strings.Join(a, " ")
 		switch {
+		case strings.Contains(joined, "shell ip route"):
+			fmt.Println("10.155.160.0/24 dev rndis0 proto kernel scope link src 10.155.160.129")
+			fmt.Println("10.163.225.60/30 dev rmnet_data2 proto kernel scope link src 10.163.225.62")
+			if os.Getenv("GOSCOPY_WIFI_FALLBACK") != "1" {
+				fmt.Println("10.168.2.0/24 dev wlan0 proto kernel scope link src 10.168.2.20")
+			}
+			os.Exit(0)
+		case strings.Contains(joined, "addr show dev wlan0"):
+			fmt.Println("17: wlan0 inet 10.168.2.20/24 brd 10.168.2.255 scope global wlan0")
+			os.Exit(0)
+		case strings.Contains(joined, "get-state"):
+			if os.Getenv("GOSCOPY_WIFI_OFFLINE") == "1" {
+				fmt.Println("offline")
+			} else {
+				fmt.Println("device")
+			}
+			os.Exit(0)
+		case strings.Contains(joined, " connect ") && !strings.Contains(joined, "bad.local"):
+			fmt.Println("connected to " + a[len(a)-1])
+			os.Exit(0)
 		case strings.Contains(joined, "connect bad.local"):
 			fmt.Println("failed to connect to bad.local")
 			os.Exit(0)
@@ -91,6 +111,30 @@ func TestConnectDetectsZeroExitFailureAndPairHidesSecret(t *testing.T) {
 	}
 }
 
+func TestEnableTCPUsesWiFiInsteadOfUSBTethering(t *testing.T) {
+	for _, fallback := range []string{"0", "1"} {
+		t.Run("fallback="+fallback, func(t *testing.T) {
+			s := testService(t)
+			t.Setenv("GOSCOPY_WIFI_FALLBACK", fallback)
+			s.EnableTCP("test-serial")
+			task := taskResult(t, s)
+			if task.Status != "done" || !strings.Contains(task.Detail, "10.168.2.20:5555") {
+				t.Fatalf("incorrect wireless endpoint: %+v", task)
+			}
+		})
+	}
+}
+
+func TestConnectRejectsOfflineTransportAfterSuccessfulConnect(t *testing.T) {
+	s := testService(t)
+	t.Setenv("GOSCOPY_WIFI_OFFLINE", "1")
+	s.Connect("10.168.2.20:5555")
+	task := taskResult(t, s)
+	if task.Status != "error" || !strings.Contains(task.Detail, "offline") {
+		t.Fatalf("false wireless success: %+v", task)
+	}
+}
+
 func TestScreenshotAndAPKWithUnicodePaths(t *testing.T) {
 	s := testService(t)
 	s.Capture("test-serial")
@@ -154,5 +198,30 @@ func TestSnapshotsAreIndependentAndConfigPersists(t *testing.T) {
 	saved, err := config.Load(s.dir)
 	if err != nil || saved.Theme != "dark" {
 		t.Fatalf("settings not persisted: %v", err)
+	}
+}
+
+func TestSavedWirelessDevicesRemainOfflineWithoutDuplicateTransports(t *testing.T) {
+	s := testService(t)
+	s.state.Settings.SavedWireless = map[string]bool{"10.168.2.20:5555": true, "10.168.2.21:5555": true}
+	s.state.Settings.DeviceNames = map[string]string{"10.168.2.20:5555": "手机"}
+	s.state.Devices = append(s.state.Devices, domain.Device{Serial: "10.168.2.21:5555", State: "device", Connection: "Wi-Fi"})
+	state := s.State()
+	if len(state.Devices) != 3 {
+		t.Fatalf("saved device missing or duplicated: %+v", state.Devices)
+	}
+	for _, d := range state.Devices {
+		if d.Serial == "10.168.2.20:5555" && (d.State != "offline" || d.Connection != "Wi-Fi") {
+			t.Fatal("saved device incorrectly marked online")
+		}
+	}
+	state.Settings.DeviceNames["10.168.2.20:5555"] = "changed"
+	delete(state.Settings.SavedWireless, "10.168.2.21:5555")
+	if s.State().Settings.DeviceNames["10.168.2.20:5555"] != "手机" || !s.State().Settings.SavedWireless["10.168.2.21:5555"] {
+		t.Fatal("record snapshot mutated backend")
+	}
+	s.Save(config.ForgetDevice(s.State().Settings, "10.168.2.20:5555"))
+	if task := taskResult(t, s); task.Status != "done" || len(s.State().Devices) != 2 {
+		t.Fatalf("forget failed: %+v", task)
 	}
 }

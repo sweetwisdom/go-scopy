@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -62,6 +63,8 @@ func New(dir, root string) (*Service, error) {
 
 func cloneSettings(v domain.Settings) domain.Settings {
 	v.Devices = cloneMap(v.Devices)
+	v.DeviceNames = cloneMap(v.DeviceNames)
+	v.SavedWireless = cloneMap(v.SavedWireless)
 	return v
 }
 
@@ -81,6 +84,16 @@ func (s *Service) State() domain.State {
 	v.Tasks = append([]domain.Task(nil), v.Tasks...)
 	v.Sessions = cloneMap(v.Sessions)
 	v.Settings = cloneSettings(v.Settings)
+	seen := make(map[string]bool, len(v.Devices))
+	for _, d := range v.Devices {
+		seen[d.Serial] = true
+	}
+	for address, saved := range v.Settings.SavedWireless {
+		if saved && !seen[address] {
+			v.Devices = append(v.Devices, domain.Device{Serial: address, State: "offline", Connection: "Wi-Fi"})
+		}
+	}
+	sort.Slice(v.Devices, func(i, j int) bool { return v.Devices[i].Serial < v.Devices[j].Serial })
 	return v
 }
 
@@ -254,7 +267,7 @@ func (s *Service) Connect(address string) {
 		}
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-		out, err := s.tool.Run(ctx, "connect", address)
+		out, err := s.tool.Connect(ctx, address)
 		return strings.TrimSpace(string(out)), "", err
 	})
 }
@@ -315,20 +328,9 @@ func (s *Service) EnableTCP(serial string) {
 		}
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-		out, err := s.tool.Device(ctx, serial, "shell", "ip", "route")
+		host, err := s.tool.WiFiAddress(ctx, serial)
 		if err != nil {
 			return "", "", err
-		}
-		fields := strings.Fields(string(out))
-		var host string
-		for i, v := range fields {
-			if v == "src" && i+1 < len(fields) && net.ParseIP(fields[i+1]) != nil {
-				host = fields[i+1]
-				break
-			}
-		}
-		if host == "" {
-			return "", "", errors.New("未找到手机局域网地址，请先连接 Wi-Fi")
 		}
 		if _, err = s.tool.Device(ctx, serial, "tcpip", "5555"); err != nil {
 			return "", "", err
@@ -343,7 +345,7 @@ func (s *Service) EnableTCP(serial string) {
 				return "", "", ctx.Err()
 			case <-timer.C:
 			}
-			result, err = s.tool.Run(ctx, "connect", address)
+			result, err = s.tool.Connect(ctx, address)
 			if err == nil {
 				break
 			}

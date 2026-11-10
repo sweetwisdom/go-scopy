@@ -5,9 +5,13 @@ import "time"
 
 type Device struct {
 	Serial, Model, Product, State, Connection string
+	Alias                                     string
 }
 
 func (d Device) Name() string {
+	if d.Alias != "" {
+		return d.Alias
+	}
 	if d.Model != "" {
 		return d.Model
 	}
@@ -25,12 +29,14 @@ type Options struct {
 }
 
 type Settings struct {
-	Theme      string             `json:"theme"`
-	ADBPath    string             `json:"adbPath,omitempty"`
-	ScrcpyPath string             `json:"scrcpyPath,omitempty"`
-	OutputDir  string             `json:"outputDir"`
-	Defaults   Options            `json:"defaults"`
-	Devices    map[string]Options `json:"devices,omitempty"`
+	Theme         string             `json:"theme"`
+	ADBPath       string             `json:"adbPath,omitempty"`
+	ScrcpyPath    string             `json:"scrcpyPath,omitempty"`
+	OutputDir     string             `json:"outputDir"`
+	Defaults      Options            `json:"defaults"`
+	Devices       map[string]Options `json:"devices,omitempty"`
+	DeviceNames   map[string]string  `json:"deviceNames,omitempty"`
+	SavedWireless map[string]bool    `json:"savedWireless,omitempty"`
 }
 
 func (s Settings) OptionsFor(serial string) Options {

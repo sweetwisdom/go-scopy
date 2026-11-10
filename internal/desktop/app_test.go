@@ -125,6 +125,74 @@ func TestWirelessPairingClearsSecretAndKeepsPortsSeparate(t *testing.T) {
 	}
 }
 
+func TestDeviceRenameAndWirelessRecordEditor(t *testing.T) {
+	f := sample()
+	u, s := openUI(t, f)
+	click(t, s, "重命名")
+	u.deviceName.SetText(strings.Repeat("机", 41))
+	f.action = ""
+	click(t, s, "保存名称")
+	if f.action != "" || !strings.Contains(u.notice, "40") || u.renameSerial == "" {
+		t.Fatal("invalid name was saved or editor closed")
+	}
+	u.deviceName.SetText("我的 Pixel")
+	click(t, s, "保存名称")
+	s.Driver().Pump()
+	if f.state.Settings.DeviceNames["USB-DEMO-01"] != "我的 Pixel" || !s.HasText("我的 Pixel") || !s.HasText("Pixel 9 Pro") {
+		t.Fatal("rename lost model or was not displayed")
+	}
+	click(t, s, "重命名")
+	u.deviceName.SetText("discarded")
+	click(t, s, "取消重命名")
+	if f.state.Settings.DeviceNames["USB-DEMO-01"] != "我的 Pixel" {
+		t.Fatal("cancel changed name")
+	}
+	click(t, s, "＋  无线连接")
+	u.address.SetText("10.168.2.20:5555")
+	u.newDeviceName.SetText("备用手机")
+	click(t, s, "保存无线设备")
+	s.Driver().Pump()
+	if !f.state.Settings.SavedWireless["10.168.2.20:5555"] || f.state.Settings.DeviceNames["10.168.2.20:5555"] != "备用手机" {
+		t.Fatal("wireless record was not saved")
+	}
+	// Simulate the backend publishing the saved device while it is offline.
+	f.state.Devices = append(f.state.Devices, domain.Device{Serial: "10.168.2.20:5555", State: "offline", Connection: "Wi-Fi"})
+	f.notify()
+	s.Driver().Pump()
+	click(t, s, "备用手机")
+	click(t, s, "连接设备")
+	if f.action != "connect" || f.address != "10.168.2.20:5555" {
+		t.Fatal("saved connection used wrong address")
+	}
+	click(t, s, "重命名")
+	u.deviceAddress.SetText("10.168.2.21:5555")
+	u.deviceName.SetText("更新的手机")
+	for _, size := range [][2]int{{1000, 700}, {1240, 820}} {
+		s.Resize(size[0], size[1])
+		clean(t, s)
+	}
+	click(t, s, "保存名称")
+	s.Driver().Pump()
+	if !f.state.Settings.SavedWireless["10.168.2.21:5555"] || f.state.Settings.SavedWireless["10.168.2.20:5555"] {
+		t.Fatal("wireless address edit failed")
+	}
+	f.state.Devices[len(f.state.Devices)-1].Serial = "10.168.2.21:5555"
+	f.notify()
+	s.Driver().Pump()
+	click(t, s, "更新的手机")
+	s.Resize(1240, 1400)
+	click(t, s, "删除记录")
+	click(t, s, "保留记录")
+	if !f.state.Settings.SavedWireless["10.168.2.21:5555"] {
+		t.Fatal("cancel deleted record")
+	}
+	click(t, s, "删除记录")
+	click(t, s, "确认删除记录")
+	if f.state.Settings.SavedWireless["10.168.2.21:5555"] {
+		t.Fatal("delete retained record")
+	}
+}
+
 func TestSettingsAndTaskFeedback(t *testing.T) {
 	f := sample()
 	_, s := openUI(t, f)

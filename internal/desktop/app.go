@@ -46,6 +46,10 @@ type UI struct {
 	allowClose                          func()
 	presentation                        map[string]devicePresentation
 	stats                               string
+	renameSerial                        string
+	deviceName                          flex.Field
+	deviceAddress, newDeviceName        flex.Field
+	deleteSerial                        string
 }
 
 type devicePresentation struct {
@@ -94,6 +98,10 @@ func (u *UI) syncDevices() {
 	found := false
 	u.presentation = make(map[string]devicePresentation, len(u.state.Devices))
 	u.stats = fmt.Sprintf("%d 台设备  ·  %d 个投屏会话", len(u.state.Devices), len(u.state.Sessions))
+	for i := range u.state.Devices {
+		d := &u.state.Devices[i]
+		d.Alias = u.state.Settings.DeviceNames[d.Serial]
+	}
 	for _, d := range u.state.Devices {
 		u.presentation[d.Serial] = devicePresentation{u.id("device/" + d.Serial), stateLabel(d.State) + " · " + d.Connection, stateLabel(d.State) + "  /  " + d.Connection}
 		if d.Serial == u.selected {
@@ -142,7 +150,7 @@ func (u *UI) Config() app.Config {
 		WindowControls: func() app.WindowControlsStyle {
 			return app.WindowControlsStyle{Foreground: u.c.muted, Hover: u.c.selected, Close: ui.RGB(220, 48, 54), CloseForeground: ui.RGB(255, 255, 255), Minimize: "最小化", Maximize: "最大化", Restore: "还原", CloseName: "关闭"}
 		},
-		TextInput: flex.Fields(&u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output),
+		TextInput: flex.Fields(&u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output, &u.deviceName, &u.deviceAddress, &u.newDeviceName),
 		OnScroll:  u.view.Wheel, Paint: u.paint, OnWake: u.onWake,
 		OnCloseRequest: func(allow func()) {
 			if len(u.state.Sessions) > 0 {
@@ -334,7 +342,7 @@ func (u *UI) sidebar(f *flex.Frame) {
 			count := 0
 			query := strings.ToLower(u.search.Text())
 			for _, d := range u.state.Devices {
-				if query != "" && !strings.Contains(strings.ToLower(d.Name()+" "+d.Serial), query) {
+				if query != "" && !strings.Contains(strings.ToLower(d.Name()+" "+d.Model+" "+d.Serial), query) {
 					continue
 				}
 				if u.filter == "usb" && d.Connection != "USB" || u.filter == "wifi" && d.Connection != "Wi-Fi" {
@@ -416,7 +424,7 @@ func (u *UI) dot(f *flex.Frame, online bool) {
 func (u *UI) heading(f *flex.Frame, kicker, title, desc string) {
 	f.Column().FillWidth().Gap(8).MarginSides(0, 0, 8, 0).Children(func() {
 		f.Text(kicker).FontSize(11).Color(u.c.muted)
-		f.Text(title).FontSize(26).Weight(ui.WeightSemibold)
+		f.Text(title).FillWidth().Ellipsis().FontSize(26).Weight(ui.WeightSemibold)
 		u.small(f, desc)
 	})
 }
@@ -512,13 +520,22 @@ func (u *UI) device(f *flex.Frame, d domain.Device) {
 		f.Row().FillWidth().Gap(18).Items(flex.Center).Children(func() {
 			f.Stack().Size(60, 68).Radius(13).Background(u.c.selected).Center().Children(func() { f.Icon(iconPhone).Size(32, 32).Color(u.c.blue) })
 			f.Column().Grow(1).Gap(8).Children(func() {
-				f.Text(d.Name()).FontSize(18).Weight(ui.WeightSemibold)
+				f.Text(d.Name()).FillWidth().Ellipsis().FontSize(18).Weight(ui.WeightSemibold)
+				if d.Alias != "" && d.Model != "" {
+					f.Text(d.Model).FontSize(11).Color(u.c.muted)
+				}
 				f.Text(d.Serial).FontSize(12).Color(u.c.muted).Ellipsis()
 				f.Row().Gap(7).Items(flex.Center).Children(func() {
 					u.dot(f, ready)
 					f.Text(u.presentation[d.Serial].detailStatus).FontSize(11).Color(u.c.muted)
 				})
 			})
+			if f.Button(u.id("rename-device"), "重命名").Ghost().Small().Clicked() {
+				u.renameSerial = d.Serial
+				u.deviceName.SetText(d.Alias)
+				u.deviceAddress.SetText(d.Serial)
+				u.wake.Invalidate()
+			}
 			if hasSession {
 				label := "投屏中"
 				if active.Recording != "" {
@@ -533,6 +550,25 @@ func (u *UI) device(f *flex.Frame, d domain.Device) {
 				f.Text(label).FontSize(12).Color(u.c.blue)
 			}
 		})
+		if u.renameSerial == d.Serial {
+			if d.Connection == "Wi-Fi" {
+				f.Field(&u.deviceAddress, u.id("edit-device-address"), "连接地址", "IP:端口").FillWidth().Height(38)
+			}
+			f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
+				f.Field(&u.deviceName, u.id("device-name"), "设备备注", "例如：我的小米手机").Grow(1).Height(38)
+				if f.Button(u.id("save-device-name"), "保存名称").Small().Clicked() {
+					u.saveDeviceRecord(d)
+				}
+				if f.Button(u.id("cancel-device-name"), "取消重命名").Ghost().Small().Clicked() {
+					u.renameSerial = ""
+					u.wake.Invalidate()
+				}
+			})
+			u.small(f, "备注仅保存在本机，最多 40 个字符；留空可恢复原名称。")
+			if d.Connection == "Wi-Fi" {
+				u.small(f, "可修改上方连接地址。修改仅保存记录，已有连接需自行断开。")
+			}
+		}
 		if !ready {
 			if d.State == "unauthorized" {
 				u.small(f, "请解锁手机并允许 USB 调试。如果授权弹窗未出现，请重新插拔数据线。")
@@ -596,11 +632,40 @@ func (u *UI) device(f *flex.Frame, d domain.Device) {
 					u.backend.EnableTCP(u.selected)
 				}
 			} else {
+				if f.Button(u.id("reconnect-device"), "连接设备").Outline().Disabled(ready || hasSession).Clicked() {
+					u.backend.Connect(d.Serial)
+				}
 				if f.Button(u.id("disconnect"), "断开连接").Outline().Disabled(hasSession).Clicked() {
 					u.backend.Disconnect(u.selected)
 				}
 			}
 		})
+		if d.Connection == "Wi-Fi" {
+			f.Row().Gap(10).Children(func() {
+				if !u.state.Settings.SavedWireless[d.Serial] {
+					if f.Button(u.id("remember-device"), "保存到设备列表").Ghost().Small().Clicked() {
+						u.persistDevice(d.Serial, d.Serial, d.Alias, true)
+					}
+				} else if f.Button(u.id("forget-device"), "删除记录").Ghost().Small().Clicked() {
+					u.deleteSerial = d.Serial
+					u.wake.Invalidate()
+				}
+			})
+			if u.deleteSerial == d.Serial {
+				u.small(f, "删除本机保存的地址、备注及设备参数？已连接设备仍会由 ADB 自动发现，可先断开连接。")
+				f.Row().Gap(10).Children(func() {
+					if f.Button(u.id("confirm-forget-device"), "确认删除记录").Outline().Small().Clicked() {
+						u.backend.Save(config.ForgetDevice(u.state.Settings, d.Serial))
+						u.deleteSerial = ""
+						u.wake.Invalidate()
+					}
+					if f.Button(u.id("cancel-forget-device"), "保留记录").Ghost().Small().Clicked() {
+						u.deleteSerial = ""
+						u.wake.Invalidate()
+					}
+				})
+			}
+		}
 		u.small(f, "截图和录像保存在设置中的目录，执行结果可在任务中心查看。")
 	})
 	if len(u.state.Tasks) > 0 {
@@ -611,6 +676,28 @@ func (u *UI) device(f *flex.Frame, d domain.Device) {
 		}
 		u.small(f, text)
 	}
+}
+
+func (u *UI) saveDeviceRecord(d domain.Device) {
+	if u.persistDevice(d.Serial, u.deviceAddress.Text(), u.deviceName.Text(), d.Connection == "Wi-Fi") {
+		u.renameSerial = ""
+	}
+}
+
+func (u *UI) persistDevice(previous, address, name string, wireless bool) bool {
+	s, err := config.EditDevice(u.state.Settings, previous, address, name, wireless)
+	if err != nil {
+		u.notice = err.Error()
+		u.wake.Invalidate()
+		return false
+	}
+	if wireless {
+		u.selected = strings.TrimSpace(address)
+	}
+	u.backend.Save(s)
+	u.notice = "设备记录已提交保存，结果可在任务中心查看"
+	u.wake.Invalidate()
+	return true
 }
 
 func (u *UI) optionField(f *flex.Frame, label string, field *flex.Field, key string) {
@@ -661,6 +748,7 @@ func (u *UI) wireless(f *flex.Frame) {
 	u.card(f, func() {
 		f.Text("连接已配对设备").FontSize(17).Weight(ui.WeightSemibold)
 		u.small(f, "输入无线调试主页面的 IP 地址与连接端口。旧版 TCP/IP 调试通常使用 5555。")
+		f.Field(&u.newDeviceName, u.id("new-device-name"), "设备备注（可选）", "例如：我的小米手机").FillWidth().Height(38)
 		f.Row().FillWidth().Gap(12).Children(func() {
 			f.Field(&u.address, u.id("connect-address"), "连接地址", "192.168.1.20:5555").Grow(1).Height(38)
 			if f.Button(u.id("connect"), "连接设备").Height(38).Clicked() {
@@ -669,6 +757,13 @@ func (u *UI) wireless(f *flex.Frame) {
 				u.wake.Invalidate()
 			}
 		})
+		if f.Button(u.id("save-wireless-device"), "保存无线设备").Outline().Small().Clicked() {
+			if u.persistDevice("", u.address.Text(), u.newDeviceName.Text(), true) {
+				u.connecting = false
+				u.newDeviceName.SetText("")
+			}
+		}
+		u.small(f, "保存后离线仍保留在设备列表；选中设备即可连接、编辑或删除记录。")
 	})
 	u.card(f, func() {
 		f.Text("首次连接：使用配对码").FontSize(17).Weight(ui.WeightSemibold)
@@ -750,7 +845,7 @@ func (u *UI) settings(f *flex.Frame) {
 	if u.category == "about" {
 		u.heading(f, "设置 / 关于", "Go-Scopy", "用 Go 与原生 Viva 构建的 Android 桌面工作台。")
 		u.card(f, func() {
-			f.Text("Go-Scopy 0.1.0").FontSize(20).Weight(ui.WeightSemibold)
+			f.Text("Go-Scopy 0.1.1").FontSize(20).Weight(ui.WeightSemibold)
 			u.small(f, "界面风格参考 GoIM；设备操作参考 escrcpy，投屏与控制由官方 scrcpy 提供。")
 			u.small(f, "开源项目：GoIM (MIT)、escrcpy (Apache-2.0)、Viva (Apache-2.0)、scrcpy (Apache-2.0)。完整声明随发布包提供。")
 			u.small(f, "首版支持 Windows x64。多设备可分别投屏，每台设备使用一个独立窗口。")
