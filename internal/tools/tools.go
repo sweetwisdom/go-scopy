@@ -39,9 +39,13 @@ func Resolve(custom, name, root string) (string, error) {
 		}
 		return p, nil
 	}
-	for _, p := range []string{filepath.Join(root, "tools", "scrcpy", name), filepath.Join(root, "tools", name)} {
+	paths := []string{filepath.Join(root, "tools", "scrcpy", name), filepath.Join(root, "tools", name)}
+	if runtime.GOOS == "darwin" {
+		paths = append(paths, filepath.Join(root, "..", "Resources", "tools", "scrcpy", name))
+	}
+	for _, p := range paths {
 		if info, err := os.Stat(p); err == nil && !info.IsDir() {
-			return p, nil
+			return filepath.Abs(p)
 		}
 	}
 	p, err := exec.LookPath(name)

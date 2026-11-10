@@ -1,12 +1,12 @@
 # Go-Scopy
 
-使用 **Go + 原生 Viva** 构建的 Android 投屏桌面工具。界面参考 GoIM，设备操作参考 escrcpy，投屏和鼠标键盘控制复用官方 scrcpy 独立窗口。
+使用 **Go + 原生 Viva** 构建的 Android 投屏桌面工具。界面参考 GoIM，设备操作参考 escrcpy，投屏和鼠标键盘控制复用 scrcpy，Windows 支持原生内嵌窗口。
 
 ![alt text](./docs/.imgs/demo.png)
 
 ## 使用
 
-完整解压 `Go-Scopy-0.1.4-windows-x64.zip`，运行其中的 `Go-Scopy.exe`。保留同目录的 `tools` 文件夹，无需单独安装 adb 或 scrcpy。
+从 [GitHub Releases](https://github.com/sweetwisdom/go-scopy/releases) 下载对应平台压缩包，完整解压。Windows 运行 `Go-Scopy.exe`，macOS 打开 `Go-Scopy.app`，Linux 运行 `./Go-Scopy`。保留附带工具，无需单独安装 adb 或 scrcpy。
 
 1. 在 Android 手机上开启开发者选项和 USB 调试，用数据线连接电脑，并在手机上允许 USB 调试。
 2. 左侧选择设备，点击「开始投屏」；Windows 下打开带工具栏的 Viva 投屏窗口，内嵌 scrcpy 画面，鼠标键盘直接控制手机。
@@ -21,13 +21,13 @@ USB 转无线会选择手机 Wi-Fi 接口地址并验证对应 ADB 通道。切�
 
 每台设备可同时运行一个投屏会话，多台设备可分别投屏。投屏参数在下一次启动时生效，可保存到当前设备或设为全局默认。截图／录像目录、工具路径和浅色／深色主题在「设置」中管理。更改工具路径后重新启动应用。
 
-首版交付 Windows x64；不包含主界面内嵌画面、群控、文件管理、自动化或自动更新。
+发布平台：Windows x64、macOS Intel/Apple Silicon、Linux x64/ARM64。Windows 使用内嵌投屏与悬浮工具栏，macOS/Linux 使用 scrcpy 独立窗口。
 
 0.1.3 投屏窗口：画面按手机比例调整，右侧透明底板工具栏提供返回、桌面、最近任务、菜单、音量、截图、熄屏和唤醒。点击「收起 ›」缩成小按钮，点击「‹」展开；工具栏跟随窗口移动，右侧空间不足时浮在窗口右缘。关闭窗口先结束会话并保存录像。最大化时保留等比例画面，可能出现黑边。熄屏使用 Android 休眠按键，可能锁屏；菜单键的响应取决于手机前台应用。其他平台继续使用 scrcpy 独立窗口。0.1.2 的内嵌画面已经用户确认可用，新的悬浮栏与尺寸效果待用户体验。
 
 ## 源码运行
 
-需要 Go 1.26 或更新版本、PowerShell 7。当前验证工具链为 Go 1.27.3。
+需要 Go 1.26 或更新版本；PowerShell 脚本需要 PowerShell 7。当前验证工具链为 Go 1.27.3。
 
 ```powershell
 # 下载并校验固定版本的官方工具（scrcpy 5.0.1）
@@ -47,7 +47,7 @@ pwsh -File scripts/start.ps1
 go run ./cmd/go-scopy --tools-root .
 ```
 
-工具查找顺序为设置中的可执行文件路径、`<工具根目录>/tools/scrcpy`、`<工具根目录>/tools`、PATH。发布程序的工具根目录默认为可执行文件所在目录。应用统一使用本机 adb 服务端口 5037，不会主动关闭共享 adb 服务。
+工具查找顺序为设置中的可执行文件路径、`<工具根目录>/tools/scrcpy`、`<工具根目录>/tools`、macOS 应用包的 `Contents/Resources/tools/scrcpy`、PATH。发布程序的工具根目录默认为可执行文件所在目录。应用统一使用本机 adb 服务端口 5037，不会主动关闭共享 adb 服务。
 
 配置默认保存在 `%APPDATA%\Go-Scopy\settings.json`；可用 `--data-dir <目录>` 指定隔离目录。配对码不会写入配置。截图和录像默认保存在用户目录的 `Videos\Go-Scopy` 下。
 
@@ -65,11 +65,11 @@ Remove-Item Env:GOSCOPY_ARTIFACT_DIR
 # 无可见窗口的真实工具启动检查
 pwsh -File scripts/smoke-headless.ps1
 
-# 下载官方固定版本后打包，或加 -EscrcpyRoot 使用本地资源
-pwsh -File scripts/build.ps1 -EscrcpyRoot E:\01.Dev\github-back\escrcpy
+# 使用仓库内已校验的资源打包，无需其他本地仓库
+pwsh -File scripts/build.ps1 -Version 0.1.5
 ```
 
-输出位于 `dist/Go-Scopy-0.1.4-windows-x64.zip`。包内包含工具来源清单、第三方许可和逐文件 `SHA256SUMS.txt`。
+Windows 输出位于 `dist/Go-Scopy-0.1.5-windows-amd64.zip`。包内包含工具来源清单、第三方许可和逐文件 `SHA256SUMS.txt`。
 
 0.1.4 修复投屏窗口生命周期：关闭投屏窗口或悬浮栏会结束对应会话，等待进程退出及录像保存后销毁两个窗口；手机断开或 scrcpy 自行退出也会自动销毁，错误和录屏结果仍在任务中心查看。
 
@@ -88,3 +88,21 @@ pwsh -File scripts/build.ps1 -EscrcpyRoot E:\01.Dev\github-back\escrcpy
 [GoIM](https://github.com/Ezreal-byte/GoIM) · [escrcpy](https://github.com/viarotel-org/escrcpy) · [Viva](https://github.com/vivaui/viva) · [scrcpy](https://github.com/Genymobile/scrcpy)
 
 本项目代码采用 MIT 许可证。第三方代码和二进制遵循各自许可证，见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+
+## 多平台发布（0.1.5）
+
+GitHub Actions 的原生 runner 矩阵与归档实现复用 GoIM。推送 `v*` 标签，或手动执行 **Release** 并填写版本号，会构建五个平台；全部通过后自动发布三个 ZIP、两个 tar.gz 和 `SHA256SUMS`。
+
+```sh
+# 在目标平台原生打包；macOS 需要 Xcode Command Line Tools
+# macOS 构建设置 CGO_ENABLED=1，CGO_CFLAGS/CGO_LDFLAGS=-mmacosx-version-min=13.0
+go run ./cmd/package --version 0.1.5 --commit <source-commit>
+```
+
+工具完整复制自 escrcpy 的 `desktop/electron/resources/extra`，保存在 `resources/extra`。`resources/manifest.json` 固定来源提交与全部文件 SHA-256；构建会校验资源，再选择当前平台的 scrcpy 目录与共用 server。未使用的托盘、语言及其他工具资源不进入发布包。macOS 工具会重新进行 ad-hoc 签名，包内文件校验记录签名后的内容。
+
+- Windows：64 位系统；应用和 scrcpy 为 x64，原版 adb/fastboot 为兼容运行的 x86。
+- macOS：13.0+，分别提供 Intel 与 Apple Silicon 包；仅 ad-hoc 签名，未经 Apple 公证。首次打开可在系统设置「隐私与安全性」允许；手机授权与窗口交互仍需目标机器验收。
+- Linux：需要图形桌面，以及 X11/XCB、xkbcommon、Vulkan、libudev 运行库。Ubuntu 24.04 可安装：`sudo apt-get install libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk libudev1`。USB 设备访问需具备相应用户权限／udev 规则；Wayland 环境可能需要 XWayland。
+
+CI 检查原生编译、工具架构兼容性、adb/scrcpy 版本运行、压缩包内容与 SHA-256，不代替各平台的手机实测。

@@ -1,0 +1,85 @@
+# Native runner matrix and pinned actions adapted from GoIM (MIT).
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (without v)
+        required: true
+        default: '0.1.5'
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: windows-2025, os: windows, arch: amd64, goarch: x64}
+          - {runner: ubuntu-24.04, os: linux, arch: amd64, goarch: x64}
+          - {runner: ubuntu-24.04-arm, os: linux, arch: arm64, goarch: arm64}
+          - {runner: macos-15-intel, os: darwin, arch: amd64, goarch: x64}
+          - {runner: macos-15, os: darwin, arch: arm64, goarch: arm64}
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CGO_ENABLED: '1'
+      CGO_CFLAGS: ${{ matrix.os == 'darwin' && '-mmacosx-version-min=13.0' || '' }}
+      CGO_LDFLAGS: ${{ matrix.os == 'darwin' && '-mmacosx-version-min=13.0' || '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.27.3'
+          architecture: ${{ matrix.goarch }}
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk libudev1
+      - name: Build native release and check bundled tools
+        env:
+          PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          test "$(go env GOARCH)" = '${{ matrix.arch }}'
+          go mod download
+          git diff --exit-code -- go.mod go.sum
+          go run ./cmd/package --version "${PACKAGE_VERSION#v}" --commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Go-Scopy-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
+      SOURCE_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: Go-Scopy-*
+          merge-multiple: true
+          path: release
+      - name: Verify all five archives and prepare checksums
+        run: python3 scripts/verify-release.py
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${PACKAGE_VERSION#v}"
+          gh release create "v$version" release/*.zip release/*.tar.gz release/SHA256SUMS --target "$SOURCE_COMMIT" --title "Go-Scopy v$version" --notes-file release/RELEASE_NOTES.md

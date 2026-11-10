@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/go-scopy/go-scopy/internal/buildinfo"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/headless"
 	"github.com/vivaui/viva/tools/appbundle"
@@ -38,7 +39,7 @@ func run(stamp string) error {
 		if err != nil {
 			return err
 		}
-		patched, err := winres.Patch(executable, ico, winres.Info{Name: "Go-Scopy", Description: "Go-Scopy Android Workspace", Version: "0.1.4", File: "Go-Scopy.exe"})
+		patched, err := winres.Patch(executable, ico, winres.Info{Name: "Go-Scopy", Description: "Go-Scopy Android Workspace", Version: buildinfo.Version, File: "Go-Scopy.exe"})
 		if err != nil {
 			return err
 		}
