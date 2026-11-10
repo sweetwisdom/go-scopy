@@ -156,12 +156,23 @@ type Process struct {
 }
 
 func (t Tools) Start(serial string, o domain.Options, recording string) (*Process, error) {
+	return t.start(serial, o, recording, false)
+}
+
+func (t Tools) StartHosted(serial string, o domain.Options, recording string) (*Process, error) {
+	return t.start(serial, o, recording, true)
+}
+
+func (t Tools) start(serial string, o domain.Options, recording string, hosted bool) (*Process, error) {
 	if t.Scrcpy == "" {
 		return nil, errors.New("scrcpy 未就绪")
 	}
 	a, err := ScrcpyArgs(serial, o, recording)
 	if err != nil {
 		return nil, err
+	}
+	if hosted {
+		a = append(a, "--window-borderless", "--no-window-aspect-ratio-lock", "--window-x=-32000", "--window-y=-32000")
 	}
 	p := &Process{Cmd: Command(context.Background(), t.Scrcpy, a...), Done: make(chan struct{})}
 	p.Cmd.Stdout = &p.Output

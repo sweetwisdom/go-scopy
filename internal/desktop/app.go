@@ -50,6 +50,8 @@ type UI struct {
 	deviceName                          flex.Field
 	deviceAddress, newDeviceName        flex.Field
 	deleteSerial                        string
+	application                         *app.Application
+	sessionWindows                      map[string]*sessionWindow
 }
 
 type devicePresentation struct {
@@ -158,6 +160,7 @@ func (u *UI) Config() app.Config {
 				u.allowClose = allow
 				u.wake.Invalidate()
 			} else {
+				u.closeSessionWindows()
 				allow()
 			}
 		},
@@ -168,6 +171,9 @@ func (u *UI) onWake() {
 	u.state = u.backend.State()
 	u.setTheme(u.state.Settings.Theme)
 	u.syncDevices()
+	for _, session := range u.sessionWindows {
+		session.wake.Invalidate()
+	}
 	if u.pendingDialog != "" {
 		kind, serial := u.pendingDialog, u.dialogSerial
 		u.pendingDialog = ""
@@ -446,6 +452,7 @@ func (u *UI) content(f *flex.Frame) {
 					}
 					if f.Button(u.id("close-confirm"), "结束并退出").Destructive().Clicked() {
 						if u.allowClose != nil {
+							u.closeSessionWindows()
 							u.allowClose()
 						}
 					}
@@ -720,6 +727,9 @@ func (u *UI) start(record bool) {
 		return
 	}
 	u.notice = ""
+	if u.startWindow(o, record) {
+		return
+	}
 	u.backend.Start(u.selected, o, record)
 }
 func (u *UI) saveOptions(global bool) {
@@ -845,7 +855,7 @@ func (u *UI) settings(f *flex.Frame) {
 	if u.category == "about" {
 		u.heading(f, "设置 / 关于", "Go-Scopy", "用 Go 与原生 Viva 构建的 Android 桌面工作台。")
 		u.card(f, func() {
-			f.Text("Go-Scopy 0.1.1").FontSize(20).Weight(ui.WeightSemibold)
+			f.Text("Go-Scopy 0.1.4").FontSize(20).Weight(ui.WeightSemibold)
 			u.small(f, "界面风格参考 GoIM；设备操作参考 escrcpy，投屏与控制由官方 scrcpy 提供。")
 			u.small(f, "开源项目：GoIM (MIT)、escrcpy (Apache-2.0)、Viva (Apache-2.0)、scrcpy (Apache-2.0)。完整声明随发布包提供。")
 			u.small(f, "首版支持 Windows x64。多设备可分别投屏，每台设备使用一个独立窗口。")

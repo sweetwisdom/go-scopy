@@ -48,6 +48,7 @@ func main() {
 	shell := desktop.New(backend)
 	var canvas ui.Canvas
 	if err = app.RunApplication(func(application *app.Application) error {
+		shell.SetApplication(application)
 		if _, err := application.OpenWindow(shell.Config(), &canvas); err != nil {
 			return err
 		}
