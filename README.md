@@ -2,6 +2,8 @@
 
 使用 **Go + 原生 Viva** 构建的 Android 投屏桌面工具。界面参考 GoIM，设备操作参考 escrcpy，投屏和鼠标键盘控制复用官方 scrcpy 独立窗口。
 
+![alt text](./docs/.imgs/demo.png)
+
 ## 使用
 
 完整解压 `Go-Scopy-0.1.4-windows-x64.zip`，运行其中的 `Go-Scopy.exe`。保留同目录的 `tools` 文件夹，无需单独安装 adb 或 scrcpy。
