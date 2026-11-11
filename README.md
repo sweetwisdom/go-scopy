@@ -22,7 +22,7 @@ A simple Android screen mirroring and control app for Windows, macOS, and Linux.
 - **USB or Wi-Fi** — Connect over USB, pair wirelessly, or switch from USB to Wi-Fi. Save wireless devices for easy connection and disconnection.
 - **Make devices your own** — Rename devices and add, edit, or remove saved wireless addresses. Keep saved devices in your list even when they are offline.
 - **Record and capture** — Record your screen, save screenshots, enable audio forwarding when needed, and choose where your captures are stored.
-- **Floating controls on Windows** — A phone-shaped mirroring window with a transparent, collapsible toolbar. Access Back, Home, Recent Apps, Menu, volume, and screen controls in one place.
+- **An island for your controls** — On Windows, a compact floating capsule expands into phone controls. Drag it freely and snap it to a screen edge, while your scrcpy window stays independent.
 - **Preferences for each device** — Tune resolution limits, frame rate, bitrate, audio, and always-on-top behavior. Save settings per device or as your defaults.
 - **Everyday tools, together** — Install APKs, review operation results in the task center, and switch between light and dark themes.
 
@@ -30,7 +30,7 @@ A simple Android screen mirroring and control app for Windows, macOS, and Linux.
 
 | Platform | Architecture | Mirroring experience |
 | --- | --- | --- |
-| Windows | x64 | Embedded window with collapsible floating controls |
+| Windows | x64 | Native scrcpy window with an independent, edge-snapping control island |
 | macOS | Intel / Apple Silicon | Standalone scrcpy window |
 | Linux | x64 / ARM64 | Standalone scrcpy window |
 

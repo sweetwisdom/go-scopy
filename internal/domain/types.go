@@ -87,7 +87,7 @@ type Backend interface {
 	Close()
 }
 
-// SessionHost owns the native container while the backend owns scrcpy's process.
+// SessionHost manages session controls while the backend owns scrcpy's process.
 type SessionHost interface {
 	Attach(context.Context, int) error
 	Done() <-chan struct{}

@@ -429,12 +429,7 @@ func (s *Service) start(serial string, options domain.Options, record bool, host
 		if err = ctx.Err(); err != nil {
 			return "", path, err
 		}
-		var p *tools.Process
-		if host == nil {
-			p, err = s.tool.Start(serial, options, path)
-		} else {
-			p, err = s.tool.StartHosted(serial, options, path)
-		}
+		p, err := s.tool.Start(serial, options, path)
 		if err != nil {
 			if path != "" {
 				os.Remove(path)
@@ -461,7 +456,7 @@ func (s *Service) start(serial string, options domain.Options, record bool, host
 			cancel()
 			if err != nil {
 				stopProcess(p)
-				return "", path, fmt.Errorf("投屏窗口嵌入失败：%w", err)
+				return "", path, fmt.Errorf("投屏窗口未就绪：%w", err)
 			}
 		}
 		if closed {

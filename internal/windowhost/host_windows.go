@@ -1,11 +1,10 @@
 //go:build windows
 
-// Package windowhost embeds scrcpy's SDL window in a native Viva container.
+// Package windowhost manages scrcpy's native window and its independent controls.
 package windowhost
 
 import (
 	"context"
-	"errors"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -17,40 +16,30 @@ import (
 const Supported = true
 
 var (
-	user          = syscall.NewLazyDLL("user32.dll")
-	enumerate     = user.NewProc("EnumWindows")
-	getPID        = user.NewProc("GetWindowThreadProcessId")
-	getText       = user.NewProc("GetWindowTextW")
-	isVisible     = user.NewProc("IsWindowVisible")
-	getStyle      = user.NewProc("GetWindowLongPtrW")
-	setStyle      = user.NewProc("SetWindowLongPtrW")
-	setParent     = user.NewProc("SetParent")
-	getParent     = user.NewProc("GetParent")
-	getClient     = user.NewProc("GetClientRect")
-	getRect       = user.NewProc("GetWindowRect")
-	toClient      = user.NewProc("ScreenToClient")
-	getDPI        = user.NewProc("GetDpiForWindow")
-	position      = user.NewProc("SetWindowPos")
-	isZoomed      = user.NewProc("IsZoomed")
-	clientScreen  = user.NewProc("ClientToScreen")
-	monitorWindow = user.NewProc("MonitorFromWindow")
-	monitorInfo   = user.NewProc("GetMonitorInfoW")
-	setRegion     = user.NewProc("SetWindowRgn")
-	gdi           = syscall.NewLazyDLL("gdi32.dll")
-	roundRegion   = gdi.NewProc("CreateRoundRectRgn")
-	combineRegion = gdi.NewProc("CombineRgn")
-	deleteObject  = gdi.NewProc("DeleteObject")
-	setFocus      = user.NewProc("SetFocus")
-	attachInput   = user.NewProc("AttachThreadInput")
-	currentThread = syscall.NewLazyDLL("kernel32.dll").NewProc("GetCurrentThreadId")
-	setHook       = user.NewProc("SetWinEventHook")
-	unhook        = user.NewProc("UnhookWinEvent")
-	hookMu        sync.Mutex
-	hooks         = map[uintptr]*Host{}
-	findMu        sync.Mutex
-	findNext      atomic.Uint64
-	findRequests  = map[uintptr]*findRequest{}
-	findCallback  = syscall.NewCallback(func(hwnd, data uintptr) uintptr {
+	user           = syscall.NewLazyDLL("user32.dll")
+	enumerate      = user.NewProc("EnumWindows")
+	getPID         = user.NewProc("GetWindowThreadProcessId")
+	getText        = user.NewProc("GetWindowTextW")
+	isVisible      = user.NewProc("IsWindowVisible")
+	getStyle       = user.NewProc("GetWindowLongPtrW")
+	setStyle       = user.NewProc("SetWindowLongPtrW")
+	getRect        = user.NewProc("GetWindowRect")
+	getDPI         = user.NewProc("GetDpiForWindow")
+	position       = user.NewProc("SetWindowPos")
+	cursorPosition = user.NewProc("GetCursorPos")
+	monitorWindow  = user.NewProc("MonitorFromWindow")
+	monitorInfo    = user.NewProc("GetMonitorInfoW")
+	setRegion      = user.NewProc("SetWindowRgn")
+	foreground     = user.NewProc("SetForegroundWindow")
+	showWindow     = user.NewProc("ShowWindow")
+	isIconic       = user.NewProc("IsIconic")
+	gdi            = syscall.NewLazyDLL("gdi32.dll")
+	roundRegion    = gdi.NewProc("CreateRoundRectRgn")
+	deleteObject   = gdi.NewProc("DeleteObject")
+	findMu         sync.Mutex
+	findNext       atomic.Uint64
+	findRequests   = map[uintptr]*findRequest{}
+	findCallback   = syscall.NewCallback(func(hwnd, data uintptr) uintptr {
 		findMu.Lock()
 		r := findRequests[data]
 		findMu.Unlock()
@@ -74,21 +63,6 @@ var (
 		r.hwnd = hwnd
 		return 0
 	})
-	locationCallback = syscall.NewCallback(func(hook, event, hwnd, object, child, thread, stamp uintptr) uintptr {
-		hookMu.Lock()
-		host := hooks[hook]
-		hookMu.Unlock()
-		if host != nil && object == 0 {
-			host.mu.Lock()
-			matches := host.child == hwnd
-			host.mu.Unlock()
-			if matches {
-				host.updateOrientation()
-				host.Resize()
-			}
-		}
-		return 0
-	})
 )
 
 type findRequest struct {
@@ -98,29 +72,29 @@ type findRequest struct {
 }
 type rect struct{ left, top, right, bottom int32 }
 type point struct{ x, y int32 }
+type monitorDetails struct {
+	size          uint32
+	monitor, work rect
+	flags         uint32
+}
 
-// Host is safe to resize from a worker while attachment is in progress.
-// Sync and Release must run on Viva's window thread for WinEvent delivery.
+// Host observes the scrcpy process without parenting or changing its window.
+// Control-window methods run on Viva's UI thread; Attach runs on a worker.
 type Host struct {
-	mu                  sync.Mutex
-	title               string
-	top                 int
-	parent, child, hook uintptr
-	pid                 uint32
-	topmost             bool
-	videoW, videoH      int32
-	layoutW, layoutH    int32
-	childW, childH      int32
-	dock                uintptr
-	dockTitle           string
-	collapsed           bool
-	regionDPI           uintptr
-	regionCollapsed     bool
+	mu                sync.Mutex
+	title             string
+	target            uintptr
+	dock              uintptr
+	collapsed, placed bool
+	anchorX, anchorY  int
+	regionW, regionH  int32
+	regionDPI         uintptr
+	dragStart         point
+	dragRect          rect
+	dragging, moved   bool
 }
 
-func New(title string, toolbarHeight int, topmost bool) *Host {
-	return &Host{title: title, top: toolbarHeight, topmost: topmost}
-}
+func New(title string) *Host { return &Host{title: title} }
 
 func find(pid uint32, title string) uintptr {
 	r := findRequest{pid: pid, title: title}
@@ -142,28 +116,10 @@ func (h *Host) Attach(ctx context.Context, pid int) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		parent, child := find(uint32(os.Getpid()), h.title), find(uint32(pid), "")
-		if parent != 0 && child != 0 {
-			var original rect
-			getClient.Call(child, uintptr(unsafe.Pointer(&original)))
-			style, _, _ := getStyle.Call(child, ^uintptr(15))                           // GWL_STYLE = -16
-			setStyle.Call(child, ^uintptr(15), (style&^uintptr(0x80C40000))|0x40000000) // WS_CHILD
-			ex, _, _ := getStyle.Call(child, ^uintptr(19))                              // GWL_EXSTYLE = -20
-			setStyle.Call(child, ^uintptr(19), ex&^uintptr(0x40000))                    // WS_EX_APPWINDOW
-			setParent.Call(child, parent)
-			if actual, _, _ := getParent.Call(child); actual != parent {
-				return errors.New("Windows 未能将 scrcpy 嵌入投屏窗口")
-			}
-			parentStyle, _, _ := getStyle.Call(parent, ^uintptr(15))
-			setStyle.Call(parent, ^uintptr(15), parentStyle|0x02000000) // WS_CLIPCHILDREN
+		if hwnd := find(uint32(pid), ""); hwnd != 0 {
 			h.mu.Lock()
-			h.parent, h.child, h.pid = parent, child, uint32(pid)
-			h.videoW, h.videoH = original.right, original.bottom
+			h.target = hwnd
 			h.mu.Unlock()
-			h.Resize()
-			if h.topmost {
-				position.Call(parent, ^uintptr(0), 0, 0, 0, 0, 0x0013)
-			}
 			return nil
 		}
 		select {
@@ -172,103 +128,6 @@ func (h *Host) Attach(ctx context.Context, pid int) error {
 		case <-timer.C:
 		}
 	}
-}
-
-// Resize uses native pixels so the video and toolbar agree at any display DPI.
-func (h *Host) Resize() {
-	h.fit()
-	h.followDock()
-	h.mu.Lock()
-	parent, child, top := h.parent, h.child, h.top
-	h.mu.Unlock()
-	if parent == 0 || child == 0 {
-		return
-	}
-	var area, actual rect
-	if ok, _, _ := getClient.Call(parent, uintptr(unsafe.Pointer(&area))); ok == 0 {
-		return
-	}
-	dpi, _, _ := getDPI.Call(parent)
-	if dpi == 0 {
-		dpi = 96
-	}
-	y := int32((top*int(dpi) + 48) / 96)
-	width, height := area.right, max(area.bottom-y, 1)
-	getRect.Call(child, uintptr(unsafe.Pointer(&actual)))
-	origin := point{actual.left, actual.top}
-	toClient.Call(parent, uintptr(unsafe.Pointer(&origin)))
-	if origin.x == 0 && origin.y == y && actual.right-actual.left == width && actual.bottom-actual.top == height {
-		return
-	}
-	h.mu.Lock()
-	h.childW, h.childH = width, height
-	h.mu.Unlock()
-	position.Call(child, 0, 0, uintptr(y), uintptr(width), uintptr(height), 0x4070) // async, show, frame changed, no activate
-}
-
-// fit retains the video's aspect ratio while allowing either edge to resize it.
-func (h *Host) fit() {
-	h.mu.Lock()
-	parent, vw, vh, lastW, lastH := h.parent, h.videoW, h.videoH, h.layoutW, h.layoutH
-	h.mu.Unlock()
-	if parent == 0 || vw <= 0 || vh <= 0 {
-		return
-	}
-	if zoomed, _, _ := isZoomed.Call(parent); zoomed != 0 {
-		return
-	}
-	var client, outer rect
-	getClient.Call(parent, uintptr(unsafe.Pointer(&client)))
-	getRect.Call(parent, uintptr(unsafe.Pointer(&outer)))
-	w, height := client.right, client.bottom
-	if w <= 0 || height <= 0 {
-		return
-	}
-	nw, nh := int32(float64(height)*float64(vw)/float64(vh)+0.5), height
-	if lastW > 0 && w != lastW && height == lastH {
-		nw = w
-		nh = int32(float64(w)*float64(vh)/float64(vw) + 0.5)
-	}
-	extraW, extraH := outer.right-outer.left-w, outer.bottom-outer.top-height
-	work := workArea(parent)
-	maxW, maxH := max(work.right-work.left-extraW-88, 120), max(work.bottom-work.top-extraH-16, 180)
-	if nw > maxW {
-		nw = maxW
-		nh = int32(float64(nw)*float64(vh)/float64(vw) + 0.5)
-	}
-	if nh > maxH {
-		nh = maxH
-		nw = int32(float64(nh)*float64(vw)/float64(vh) + 0.5)
-	}
-	h.mu.Lock()
-	h.layoutW, h.layoutH = nw, nh
-	h.mu.Unlock()
-	if nw != w || nh != height {
-		position.Call(parent, 0, 0, 0, uintptr(nw+extraW), uintptr(nh+extraH), 0x0016)
-	}
-}
-
-func (h *Host) updateOrientation() {
-	h.mu.Lock()
-	child, cw, ch, vw, vh := h.child, h.childW, h.childH, h.videoW, h.videoH
-	h.mu.Unlock()
-	if child == 0 {
-		return
-	}
-	var r rect
-	getClient.Call(child, uintptr(unsafe.Pointer(&r)))
-	if r.right > 0 && r.bottom > 0 && (r.right != cw || r.bottom != ch) && (r.right > r.bottom) != (vw > vh) {
-		h.mu.Lock()
-		h.videoW, h.videoH = r.right, r.bottom
-		h.layoutW, h.layoutH = 0, 0
-		h.mu.Unlock()
-	}
-}
-
-type monitorDetails struct {
-	size          uint32
-	monitor, work rect
-	flags         uint32
 }
 
 func workArea(hwnd uintptr) rect {
@@ -280,126 +139,173 @@ func workArea(hwnd uintptr) rect {
 	return rect{0, 0, 1920, 1080}
 }
 
-// Dock uses an owned tool window: it follows its video window and stays out of
-// the taskbar. Its region contains only the rounded buttons, leaving gaps clear.
-func (h *Host) Dock(title string, collapsed bool) {
-	dock := find(uint32(os.Getpid()), title)
-	parent := find(uint32(os.Getpid()), h.title)
-	if dock == 0 || parent == 0 {
-		return
-	}
-	setStyle.Call(dock, ^uintptr(7), parent) // GWLP_HWNDPARENT: owner, not child
-	style, _, _ := getStyle.Call(dock, ^uintptr(15))
-	setStyle.Call(dock, ^uintptr(15), style&^uintptr(0x00C40000))
-	ex, _, _ := getStyle.Call(dock, ^uintptr(19))
-	setStyle.Call(dock, ^uintptr(19), (ex&^uintptr(0x40000))|0x80)
-	h.mu.Lock()
-	h.dock, h.dockTitle, h.collapsed = dock, title, collapsed
-	h.mu.Unlock()
-	h.followDock()
-}
-
-func (h *Host) followDock() {
-	h.mu.Lock()
-	parent, dock, collapsed := h.parent, h.dock, h.collapsed
-	h.mu.Unlock()
-	if dock == 0 {
-		return
-	}
-	if parent == 0 {
-		parent = find(uint32(os.Getpid()), h.title)
-	}
-	if parent == 0 {
-		return
-	}
-	dpi, _, _ := getDPI.Call(parent)
+func dpiOf(hwnd uintptr) uintptr {
+	dpi, _, _ := getDPI.Call(hwnd)
 	if dpi == 0 {
-		dpi = 96
+		return 96
 	}
-	scale := func(v int32) int32 { return int32((int64(v)*int64(dpi) + 48) / 96) }
-	w, rows := int32(76), 11
-	if collapsed {
-		w, rows = 52, 1
+	return dpi
+}
+func scaled(value int32, dpi uintptr) int32 { return int32((int64(value)*int64(dpi) + 48) / 96) }
+
+// Dock sizes an independent, topmost island. Expanding preserves its screen edge.
+func (h *Host) Dock(collapsed bool) {
+	if h.dock == 0 {
+		h.dock = find(uint32(os.Getpid()), h.title)
+		if h.dock == 0 {
+			return
+		}
+		style, _, _ := getStyle.Call(h.dock, ^uintptr(15))
+		setStyle.Call(h.dock, ^uintptr(15), style&^uintptr(0x00CF0000))
+		ex, _, _ := getStyle.Call(h.dock, ^uintptr(19))
+		setStyle.Call(h.dock, ^uintptr(19), (ex&^uintptr(0x40000))|0x80)
 	}
-	height := int32(12 + rows*40 + (rows-1)*6)
-	var outer rect
-	getRect.Call(parent, uintptr(unsafe.Pointer(&outer)))
-	origin := point{}
-	clientScreen.Call(parent, uintptr(unsafe.Pointer(&origin)))
-	work := workArea(parent)
-	x, y := outer.right+scale(6), origin.y+scale(6)
-	if x+scale(w) > work.right {
-		x = outer.right - scale(w) - scale(6)
-	}
-	y = max(work.top, min(y, work.bottom-scale(height)))
-	position.Call(dock, 0, uintptr(x), uintptr(y), uintptr(scale(w)), uintptr(scale(height)), 0x0010)
-	h.mu.Lock()
-	rebuild := h.regionDPI != dpi || h.regionCollapsed != collapsed
-	h.regionDPI, h.regionCollapsed = dpi, collapsed
-	h.mu.Unlock()
-	if !rebuild {
+	if h.placed && h.collapsed == collapsed {
+		h.RefreshDock()
 		return
 	}
-	region, _, _ := roundRegion.Call(0, 0, 0, 0, 0, 0)
-	for i := 0; i < rows; i++ {
-		top := int32(6 + i*46)
-		part, _, _ := roundRegion.Call(uintptr(scale(6)), uintptr(scale(top)), uintptr(scale(w-6)+1), uintptr(scale(top+40)+1), uintptr(scale(16)), uintptr(scale(16)))
-		combineRegion.Call(region, region, part, 2)
-		deleteObject.Call(part)
+	dpi := dpiOf(h.dock)
+	w, height := int32(236), int32(48)
+	if !collapsed {
+		w, height = 344, 272
 	}
-	if ok, _, _ := setRegion.Call(dock, region, 1); ok == 0 {
-		deleteObject.Call(region)
+	w, height = scaled(w, dpi), scaled(height, dpi)
+	var current rect
+	getRect.Call(h.dock, uintptr(unsafe.Pointer(&current)))
+	work := workArea(h.dock)
+	gap := scaled(12, dpi)
+	x, y := (current.left+current.right-w)/2, current.top
+	if !h.placed {
+		x = work.left + (work.right-work.left-w)/2
+		h.anchorY = -1
 	}
+	if h.anchorX == -1 {
+		x = work.left + gap
+	}
+	if h.anchorX == 1 {
+		x = work.right - gap - w
+	}
+	if h.anchorY == -1 {
+		y = work.top + gap
+	}
+	if h.anchorY == 1 {
+		y = work.bottom - gap - height
+	}
+	x = max(work.left, min(x, work.right-w))
+	y = max(work.top, min(y, work.bottom-height))
+	h.collapsed, h.placed = collapsed, true
+	// HWND_TOPMOST, no activation, frame changed. No owner ties it to the phone.
+	position.Call(h.dock, ^uintptr(0), uintptr(x), uintptr(y), uintptr(w), uintptr(height), 0x0030)
+	h.RefreshDock()
 }
 
-// Sync installs an event-driven size guard on the UI thread. SDL may otherwise
-// change its child window size when the phone rotates or a resize shortcut runs.
-func (h *Host) Sync() {
-	h.mu.Lock()
-	pid, child, existing := h.pid, h.child, h.hook
-	h.mu.Unlock()
-	if child == 0 {
+// RefreshDock also handles DPI changes while crossing monitors.
+func (h *Host) RefreshDock() {
+	if h.dock == 0 {
 		return
 	}
-	if existing == 0 {
-		hook, _, _ := setHook.Call(0x800B, 0x800B, 0, locationCallback, uintptr(pid), 0, 0)
-		if hook != 0 {
-			hookMu.Lock()
-			hooks[hook] = h
-			hookMu.Unlock()
-			h.mu.Lock()
-			h.hook = hook
-			h.mu.Unlock()
-		}
+	var r rect
+	getRect.Call(h.dock, uintptr(unsafe.Pointer(&r)))
+	w, height, dpi := r.right-r.left, r.bottom-r.top, dpiOf(h.dock)
+	if w == h.regionW && height == h.regionH && dpi == h.regionDPI {
+		return
 	}
-	h.Resize()
+	radius := scaled(28, dpi)
+	if h.collapsed {
+		radius = height / 2
+	}
+	// HRGN has binary coverage. Keep its coarse hit-test shape outside the
+	// painted curve so it cannot cut off DirectComposition's alpha fringe.
+	radius = max(radius-scaled(3, dpi), 1)
+	region, _, _ := roundRegion.Call(0, 0, uintptr(w+1), uintptr(height+1), uintptr(radius*2), uintptr(radius*2))
+	if region == 0 {
+		return
+	}
+	if ok, _, _ := setRegion.Call(h.dock, region, 1); ok == 0 {
+		deleteObject.Call(region)
+		return
+	}
+	h.regionW, h.regionH, h.regionDPI = w, height, dpi
+}
+
+func (h *Host) BeginDrag() {
+	if h.dock == 0 {
+		return
+	}
+	cursorPosition.Call(uintptr(unsafe.Pointer(&h.dragStart)))
+	getRect.Call(h.dock, uintptr(unsafe.Pointer(&h.dragRect)))
+	h.dragging, h.moved = true, false
+}
+func (h *Host) MoveDrag() {
+	if !h.dragging {
+		return
+	}
+	var cursor point
+	cursorPosition.Call(uintptr(unsafe.Pointer(&cursor)))
+	dx, dy := cursor.x-h.dragStart.x, cursor.y-h.dragStart.y
+	threshold := scaled(4, dpiOf(h.dock))
+	if !h.moved && abs32(dx) < threshold && abs32(dy) < threshold {
+		return
+	}
+	h.moved = true
+	position.Call(h.dock, 0, uintptr(h.dragRect.left+dx), uintptr(h.dragRect.top+dy), 0, 0, 0x0015)
+}
+func (h *Host) EndDrag() {
+	if !h.dragging {
+		return
+	}
+	h.MoveDrag()
+	h.dragging = false
+	if !h.moved {
+		return
+	}
+	var r rect
+	getRect.Call(h.dock, uintptr(unsafe.Pointer(&r)))
+	dpi := dpiOf(h.dock)
+	r, h.anchorX, h.anchorY = snapRect(r, workArea(h.dock), scaled(24, dpi), scaled(12, dpi))
+	position.Call(h.dock, 0, uintptr(r.left), uintptr(r.top), 0, 0, 0x0015)
+	h.RefreshDock()
+}
+
+func abs32(v int32) int32 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+func snapRect(r, work rect, threshold, gap int32) (rect, int, int) {
+	w, height := r.right-r.left, r.bottom-r.top
+	x := max(work.left, min(r.left, work.right-w))
+	y := max(work.top, min(r.top, work.bottom-height))
+	ax, ay := 0, 0
+	if abs32(x-work.left) <= threshold {
+		x, ax = work.left+gap, -1
+	} else if abs32(work.right-x-w) <= threshold {
+		x, ax = work.right-gap-w, 1
+	}
+	if abs32(y-work.top) <= threshold {
+		y, ay = work.top+gap, -1
+	} else if abs32(work.bottom-y-height) <= threshold {
+		y, ay = work.bottom-gap-height, 1
+	}
+	return rect{x, y, x + w, y + height}, ax, ay
 }
 
 func (h *Host) Focus() {
 	h.mu.Lock()
-	child := h.child
+	target := h.target
 	h.mu.Unlock()
-	if child == 0 {
+	if target == 0 {
 		return
 	}
-	thread, _, _ := getPID.Call(child, 0)
-	current, _, _ := currentThread.Call()
-	if thread != current {
-		attachInput.Call(current, thread, 1)
-		defer attachInput.Call(current, thread, 0)
+	if minimized, _, _ := isIconic.Call(target); minimized != 0 {
+		showWindow.Call(target, 9)
 	}
-	setFocus.Call(child)
+	foreground.Call(target)
 }
-
 func (h *Host) Release() {
 	h.mu.Lock()
-	hook := h.hook
-	h.hook, h.child, h.parent = 0, 0, 0
+	h.target = 0
 	h.mu.Unlock()
-	if hook != 0 {
-		unhook.Call(hook)
-		hookMu.Lock()
-		delete(hooks, hook)
-		hookMu.Unlock()
-	}
+	h.dock, h.dragging = 0, false
 }

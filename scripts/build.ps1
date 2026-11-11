@@ -1,4 +1,4 @@
-param([string]$Version = '0.1.5', [switch]$SkipChecks)
+param([string]$Version = '0.1.7', [switch]$SkipChecks)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $taskRoot

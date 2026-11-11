@@ -64,7 +64,7 @@ notes = f'''Go-Scopy v{version}
 
 - Windows x64、macOS Intel / Apple Silicon、Linux x64 / ARM64 原生构建。
 - 包含对应平台的 adb、scrcpy 4.1 和 Android server，解压即可使用。
-- Windows 支持内嵌投屏和透明可收起工具栏；macOS/Linux 使用 scrcpy 独立窗口。
+- 全平台使用 scrcpy 原生投屏窗口；Windows 额外提供可收起、独立拖动并吸附屏幕边缘的灵动岛控制窗。
 - macOS 要求 13.0+；应用为 ad-hoc 签名，未经 Apple 公证。
 - Linux 需要图形桌面及 X11/XCB、xkbcommon、Vulkan、libudev 运行库，详见 README。
 
