@@ -5,6 +5,7 @@ package windowhost
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,7 @@ var (
 	foreground     = user.NewProc("SetForegroundWindow")
 	showWindow     = user.NewProc("ShowWindow")
 	isIconic       = user.NewProc("IsIconic")
+	keybdEvent     = user.NewProc("keybd_event")
 	gdi            = syscall.NewLazyDLL("gdi32.dll")
 	roundRegion    = gdi.NewProc("CreateRoundRectRgn")
 	deleteObject   = gdi.NewProc("DeleteObject")
@@ -167,7 +169,7 @@ func (h *Host) Dock(collapsed bool) {
 	dpi := dpiOf(h.dock)
 	w, height := int32(236), int32(48)
 	if !collapsed {
-		w, height = 344, 272
+		w, height = 344, 368
 	}
 	w, height = scaled(w, dpi), scaled(height, dpi)
 	var current rect
@@ -302,6 +304,46 @@ func (h *Host) Focus() {
 		showWindow.Call(target, 9)
 	}
 	foreground.Call(target)
+}
+
+// ScreenOff drives scrcpy's own screen shortcut (MOD+o / MOD+Shift+o) with
+// synthesized keystrokes, so the phone's panel turns off while mirroring
+// keeps running and the device stays interactive. true turns the screen off.
+func (h *Host) ScreenOff(off bool) error {
+	h.mu.Lock()
+	target := h.target
+	h.mu.Unlock()
+	if target == 0 {
+		return errors.New("投屏窗口未就绪")
+	}
+	if minimized, _, _ := isIconic.Call(target); minimized != 0 {
+		showWindow.Call(target, 9)
+	}
+	foreground.Call(target)
+	const (
+		vkMenu  = 0x12
+		vkShift = 0x10
+		keyO    = 0x4F
+		keyUp   = 0x0002
+	)
+	keyEvent := func(key uintptr, up bool) {
+		flags := uintptr(0)
+		if up {
+			flags = keyUp
+		}
+		keybdEvent.Call(key, 0, flags, 0)
+	}
+	keyEvent(vkMenu, false)
+	if !off {
+		keyEvent(vkShift, false)
+	}
+	keyEvent(keyO, false)
+	keyEvent(keyO, true)
+	if !off {
+		keyEvent(vkShift, true)
+	}
+	keyEvent(vkMenu, true)
+	return nil
 }
 func (h *Host) Release() {
 	h.mu.Lock()

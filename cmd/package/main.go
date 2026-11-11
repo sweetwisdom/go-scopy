@@ -121,6 +121,9 @@ func build() error {
 	if err := copyFile("resources/extra/common/scrcpy/scrcpy-server", filepath.Join(toolsRoot, "scrcpy-server")); err != nil {
 		return err
 	}
+	if err := copyFile("resources/extra/common/panda-kit.jar", filepath.Join(toolsRoot, "panda-kit.jar")); err != nil {
+		return err
+	}
 	if err := copyFile("resources/manifest.json", filepath.Join(toolsRoot, "source.json")); err != nil {
 		return err
 	}

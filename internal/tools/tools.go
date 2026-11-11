@@ -19,7 +19,7 @@ import (
 	"github.com/go-scopy/go-scopy/internal/domain"
 )
 
-type Tools struct{ ADB, Scrcpy string }
+type Tools struct{ ADB, Scrcpy, Root string }
 
 func Resolve(custom, name, root string) (string, error) {
 	if runtime.GOOS == "windows" {
@@ -105,14 +105,26 @@ func ValidateAddress(address string) error {
 	return nil
 }
 
-func ScrcpyArgs(serial string, o domain.Options, recording string) ([]string, error) {
+// ScrcpyArgs builds one session's command line. A non-nil display turns the
+// session into a scrcpy virtual display instead of mirroring the main screen.
+func ScrcpyArgs(serial string, o domain.Options, display *domain.VirtualDisplay, recording string) ([]string, error) {
 	if serial == "" {
 		return nil, errors.New("请先选择设备")
 	}
 	if err := config.ValidateOptions(o); err != nil {
 		return nil, err
 	}
-	a := []string{"--serial", serial, "--window-title", "Go-Scopy · " + serial, "--max-fps", strconv.Itoa(o.FPS), "--video-bit-rate", strconv.Itoa(o.Bitrate) + "M"}
+	title := "Go-Scopy · " + serial
+	if display != nil {
+		if display.StartApp == "" {
+			return nil, errors.New("请选择要在虚拟屏幕中运行的应用")
+		}
+		if display.Width <= 0 || display.Height <= 0 {
+			return nil, errors.New("虚拟屏幕分辨率无效")
+		}
+		title = "Go-Scopy Virtual · " + serial
+	}
+	a := []string{"--serial", serial, "--window-title", title, "--max-fps", strconv.Itoa(o.FPS), "--video-bit-rate", strconv.Itoa(o.Bitrate) + "M"}
 	if o.MaxSize > 0 {
 		a = append(a, "--max-size", strconv.Itoa(o.MaxSize))
 	}
@@ -127,6 +139,28 @@ func ScrcpyArgs(serial string, o domain.Options, recording string) ([]string, er
 	}
 	if o.AlwaysOnTop {
 		a = append(a, "--always-on-top")
+	}
+	if o.Keyboard == domain.KeyboardUHID {
+		a = append(a, "--keyboard=uhid")
+	} else {
+		a = append(a, "--keyboard=sdk")
+	}
+	if display != nil {
+		spec := strconv.Itoa(display.Width) + "x" + strconv.Itoa(display.Height)
+		if display.DPI > 0 {
+			spec += "/" + strconv.Itoa(display.DPI)
+		}
+		a = append(a, "--new-display="+spec)
+		if !display.SystemDecorations {
+			a = append(a, "--no-vd-system-decorations")
+		}
+		if !display.DestroyOnClose {
+			a = append(a, "--no-vd-destroy-content")
+		}
+		if display.IMEPolicy != "" {
+			a = append(a, "--display-ime-policy="+display.IMEPolicy)
+		}
+		a = append(a, "--start-app="+display.StartApp)
 	}
 	if recording != "" {
 		a = append(a, "--record", recording)
@@ -159,11 +193,11 @@ type Process struct {
 	Err    error
 }
 
-func (t Tools) Start(serial string, o domain.Options, recording string) (*Process, error) {
+func (t Tools) Start(serial string, o domain.Options, display *domain.VirtualDisplay, recording string) (*Process, error) {
 	if t.Scrcpy == "" {
 		return nil, errors.New("scrcpy 未就绪")
 	}
-	a, err := ScrcpyArgs(serial, o, recording)
+	a, err := ScrcpyArgs(serial, o, display, recording)
 	if err != nil {
 		return nil, err
 	}

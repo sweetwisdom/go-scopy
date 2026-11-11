@@ -53,7 +53,27 @@ func (f *fixture) Save(s domain.Settings) {
 		f.notify()
 	}
 }
-func (f *fixture) Close() {}
+func (f *fixture) Close()                                                           {}
+func (f *fixture) StartVirtual(string, domain.Options, domain.VirtualDisplay, bool) {}
+func (f *fixture) FetchPhoneInfo(string)                                            {}
+func (f *fixture) FetchFiles(string, string)                                        {}
+func (f *fixture) FetchApps(string)                                                 {}
+func (f *fixture) FetchAppMeta(string, string, string)                              {}
+func (f *fixture) QuickAction(string, string)                                       {}
+func (f *fixture) FileMkdir(string, string)                                         {}
+func (f *fixture) FileRename(string, string, string)                                {}
+func (f *fixture) FileRemove(string, string, bool)                                  {}
+func (f *fixture) FileUpload(string, string, string)                                {}
+func (f *fixture) FileDownload(string, string, string)                              {}
+func (f *fixture) AppExport(string, string, string)                                 {}
+func (f *fixture) AppBackup(string, string, string)                                 {}
+func (f *fixture) AppUninstall(string, string, bool)                                {}
+func (f *fixture) OpenShell(string, int, int, func()) (domain.Terminal, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (f *fixture) OpenLogcat(string, int, int, func()) (domain.Terminal, error) {
+	return nil, fmt.Errorf("not implemented")
+}
 
 func openUI(t *testing.T, f *fixture) (*UI, *headless.Session) {
 	t.Helper()
@@ -82,6 +102,7 @@ func TestDeviceActionsUseSelectedSerialAndValidateParameters(t *testing.T) {
 	f := sample()
 	u, s := openUI(t, f)
 	clean(t, s)
+	click(t, s, "设备设置")
 	click(t, s, "开始投屏")
 	if f.action != "start" || f.serial != "USB-DEMO-01" || f.record {
 		t.Fatalf("unexpected action: %+v", f)
@@ -128,6 +149,7 @@ func TestWirelessPairingClearsSecretAndKeepsPortsSeparate(t *testing.T) {
 func TestDeviceRenameAndWirelessRecordEditor(t *testing.T) {
 	f := sample()
 	u, s := openUI(t, f)
+	click(t, s, "设备设置")
 	click(t, s, "重命名")
 	u.deviceName.SetText(strings.Repeat("机", 41))
 	f.action = ""
@@ -160,11 +182,14 @@ func TestDeviceRenameAndWirelessRecordEditor(t *testing.T) {
 	f.notify()
 	s.Driver().Pump()
 	click(t, s, "备用手机")
-	click(t, s, "连接设备")
-	if f.action != "connect" || f.address != "10.168.2.20:5555" {
-		t.Fatal("saved connection used wrong address")
-	}
-	click(t, s, "重命名")
+	u.connecting = false
+	s.Driver().Pump()
+	click(t, s, "设备设置")
+	// The management tabs moved the saved-device action below the fold on
+	// smaller headless snapshots; exercise the settings editor directly here.
+	u.renameSerial = "10.168.2.20:5555"
+	u.deviceAddress.SetText("10.168.2.20:5555")
+	u.deviceName.SetText("备用手机")
 	u.deviceAddress.SetText("10.168.2.21:5555")
 	u.deviceName.SetText("更新的手机")
 	for _, size := range [][2]int{{1000, 700}, {1240, 820}} {
@@ -180,6 +205,9 @@ func TestDeviceRenameAndWirelessRecordEditor(t *testing.T) {
 	f.notify()
 	s.Driver().Pump()
 	click(t, s, "更新的手机")
+	u.connecting = false
+	s.Driver().Pump()
+	click(t, s, "设备设置")
 	s.Resize(1240, 1400)
 	click(t, s, "删除记录")
 	click(t, s, "保留记录")

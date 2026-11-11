@@ -31,6 +31,7 @@ type Service struct {
 	cancel    context.CancelFunc
 	notify    func()
 	processes map[string]*tools.Process
+	inflight  map[string]bool
 	closed    bool
 	wg        sync.WaitGroup
 	next      uint64
@@ -42,11 +43,11 @@ func New(dir, root string) (*Service, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{dir: dir, ctx: ctx, cancel: cancel, processes: map[string]*tools.Process{}}
+	s := &Service{dir: dir, ctx: ctx, cancel: cancel, processes: map[string]*tools.Process{}, inflight: map[string]bool{}}
 	s.state = domain.State{Settings: settings, Sessions: map[string]domain.Session{}, Connection: "正在检查运行环境…"}
 	adb, ae := tools.Resolve(settings.ADBPath, "adb", root)
 	scrcpy, se := tools.Resolve(settings.ScrcpyPath, "scrcpy", root)
-	s.tool = tools.Tools{ADB: adb, Scrcpy: scrcpy}
+	s.tool = tools.Tools{ADB: adb, Scrcpy: scrcpy, Root: root}
 	s.state.ADBPath = adb
 	s.state.ScrcpyPath = scrcpy
 	var problems []string
@@ -84,6 +85,10 @@ func (s *Service) State() domain.State {
 	v.Tasks = append([]domain.Task(nil), v.Tasks...)
 	v.Sessions = cloneMap(v.Sessions)
 	v.Settings = cloneSettings(v.Settings)
+	v.PhoneInfos = cloneMap(v.PhoneInfos)
+	v.Files = cloneMap(v.Files)
+	v.Apps = cloneMap(v.Apps)
+	v.AppMetas = cloneMap(v.AppMetas)
 	seen := make(map[string]bool, len(v.Devices))
 	for _, d := range v.Devices {
 		seen[d.Serial] = true
@@ -170,8 +175,12 @@ func (s *Service) monitor() {
 						}
 					}
 					if !online {
-						if p := s.processes[before.Serial]; p != nil {
-							disconnected = append(disconnected, p)
+						// A device may run a mirror and a virtual-display session
+						// at once; both belong to the device and both must end.
+						for id, p := range s.processes {
+							if session, ok := s.state.Sessions[id]; ok && session.Serial == before.Serial {
+								disconnected = append(disconnected, p)
+							}
 						}
 					}
 				}
@@ -380,15 +389,27 @@ func (s *Service) output(serial, ext string) (string, error) {
 }
 
 func (s *Service) Start(serial string, options domain.Options, record bool) {
-	s.start(serial, options, record, nil)
+	s.start(serial, domain.SessionID(serial, domain.SessionMirror), domain.SessionMirror, options, nil, record, nil)
 }
 
-func (s *Service) StartHosted(serial string, options domain.Options, record bool, host domain.SessionHost) {
-	s.start(serial, options, record, host)
+func (s *Service) StartVirtual(serial string, options domain.Options, display domain.VirtualDisplay, record bool) {
+	s.start(serial, domain.SessionID(serial, domain.SessionVirtual), domain.SessionVirtual, options, &display, record, nil)
 }
 
-func (s *Service) start(serial string, options domain.Options, record bool, host domain.SessionHost) {
-	s.submit("投屏 · "+serial, func(ctx context.Context) (detail, path string, err error) {
+func (s *Service) StartHosted(serial, session string, options domain.Options, display *domain.VirtualDisplay, record bool, host domain.SessionHost) {
+	kind := domain.SessionMirror
+	if display != nil {
+		kind = domain.SessionVirtual
+	}
+	s.start(serial, session, kind, options, display, record, host)
+}
+
+func (s *Service) start(serial, session string, kind domain.SessionKind, options domain.Options, display *domain.VirtualDisplay, record bool, host domain.SessionHost) {
+	title := "投屏 · " + serial
+	if kind == domain.SessionVirtual {
+		title = "虚拟屏幕 · " + serial
+	}
+	s.submit(title, func(ctx context.Context) (detail, path string, err error) {
 		if host != nil {
 			defer func() { host.Finished(err) }()
 			workCtx, cancel := context.WithCancel(ctx)
@@ -406,17 +427,17 @@ func (s *Service) start(serial string, options domain.Options, record bool, host
 			return
 		}
 		s.mu.Lock()
-		if _, exists := s.state.Sessions[serial]; exists {
+		if _, exists := s.state.Sessions[session]; exists {
 			s.mu.Unlock()
-			return "", "", errors.New("此设备已有投屏会话")
+			return "", "", errors.New("此会话已在运行")
 		}
-		s.state.Sessions[serial] = domain.Session{Serial: serial, Status: "starting", Started: time.Now()}
+		s.state.Sessions[session] = domain.Session{ID: session, Serial: serial, Kind: kind, Status: "starting", Started: time.Now()}
 		s.mu.Unlock()
 		s.wake()
 		defer func() {
 			s.mu.Lock()
-			delete(s.state.Sessions, serial)
-			delete(s.processes, serial)
+			delete(s.state.Sessions, session)
+			delete(s.processes, session)
 			s.mu.Unlock()
 			s.wake()
 		}()
@@ -429,7 +450,7 @@ func (s *Service) start(serial string, options domain.Options, record bool, host
 		if err = ctx.Err(); err != nil {
 			return "", path, err
 		}
-		p, err := s.tool.Start(serial, options, path)
+		p, err := s.tool.Start(serial, options, display, path)
 		if err != nil {
 			if path != "" {
 				os.Remove(path)
@@ -438,8 +459,8 @@ func (s *Service) start(serial string, options domain.Options, record bool, host
 		}
 		s.mu.Lock()
 		closed := s.closed
-		s.processes[serial] = p
-		s.state.Sessions[serial] = domain.Session{Serial: serial, Status: "running", Recording: path, Started: time.Now()}
+		s.processes[session] = p
+		s.state.Sessions[session] = domain.Session{ID: session, Serial: serial, Kind: kind, Status: "running", Recording: path, Started: time.Now()}
 		s.mu.Unlock()
 		s.wake()
 		if host != nil {
@@ -519,14 +540,15 @@ func stopProcess(p *tools.Process) bool {
 	}
 }
 
-func (s *Service) Stop(serial string) {
-	s.submit("停止投屏 · "+serial, func(ctx context.Context) (string, string, error) {
+// Stop ends one session by its ID; a device may hold several sessions.
+func (s *Service) Stop(session string) {
+	s.submit("停止会话 · "+session, func(ctx context.Context) (string, string, error) {
 		s.mu.Lock()
-		p := s.processes[serial]
+		p := s.processes[session]
 		if p != nil {
-			v := s.state.Sessions[serial]
+			v := s.state.Sessions[session]
 			v.Status = "stopping"
-			s.state.Sessions[serial] = v
+			s.state.Sessions[session] = v
 		}
 		s.mu.Unlock()
 		s.wake()
@@ -584,6 +606,7 @@ func (s *Service) Install(serial, apk string) {
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 		defer cancel()
 		out, err := s.tool.Device(ctx, serial, "install", "-r", apk)
+		s.FetchApps(serial)
 		return strings.TrimSpace(string(out)), "", err
 	})
 }

@@ -179,7 +179,7 @@ func (h *startupHost) Finished(err error)                    { h.finished <- err
 func TestHostedStartupFailureReleasesContainer(t *testing.T) {
 	s := testService(t)
 	h := &startupHost{finished: make(chan error, 1)}
-	s.StartHosted("test-serial", s.State().Settings.Defaults, false, h)
+	s.StartHosted("test-serial", domain.SessionID("test-serial", domain.SessionMirror), s.State().Settings.Defaults, nil, false, h)
 	task := taskResult(t, s)
 	if task.Status != "error" || !strings.Contains(task.Detail, "deliberate scrcpy startup failure") {
 		t.Fatal(task)

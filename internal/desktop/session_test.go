@@ -14,8 +14,9 @@ import (
 
 type toolbarBackend struct{ *fixture }
 
-func (f *toolbarBackend) StartHosted(string, domain.Options, bool, domain.SessionHost) {}
-func (f *toolbarBackend) Key(serial, action string)                                    { f.serial, f.action = serial, action }
+func (f *toolbarBackend) StartHosted(string, string, domain.Options, *domain.VirtualDisplay, bool, domain.SessionHost) {
+}
+func (f *toolbarBackend) Key(serial, action string) { f.serial, f.action = serial, action }
 
 func TestSessionToolbarTargetsItsDevice(t *testing.T) {
 	f := &toolbarBackend{sample()}
@@ -46,7 +47,7 @@ func TestSessionToolbarTargetsItsDevice(t *testing.T) {
 	if w.collapsed {
 		t.Fatal("island did not expand")
 	}
-	if err := s.Driver().Resize(344, 272); err != nil {
+	if err := s.Driver().Resize(344, 368); err != nil {
 		t.Fatal(err)
 	}
 	clean(t, s)
@@ -68,7 +69,7 @@ func TestSessionToolbarTargetsItsDevice(t *testing.T) {
 		t.Fatal("screenshot targeted another device")
 	}
 	w.closing = true
-	s.Driver().Resize(344, 272)
+	s.Driver().Resize(344, 368)
 	if _, exists := s.Hit("桌面"); exists {
 		t.Fatal("closing session accepts phone commands")
 	}

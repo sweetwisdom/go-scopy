@@ -11,6 +11,7 @@ import (
 	"github.com/go-scopy/go-scopy/internal/buildinfo"
 	"github.com/go-scopy/go-scopy/internal/config"
 	"github.com/go-scopy/go-scopy/internal/domain"
+	"github.com/go-scopy/go-scopy/internal/term"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
@@ -52,6 +53,14 @@ type UI struct {
 	deviceAddress, newDeviceName        flex.Field
 	deleteSerial                        string
 	application                         *app.Application
+	deviceTab, termMode, termFocus      string
+	terminals                           map[string]*terminalPanel
+	files                               filesState
+	apps                                appsState
+	vd                                  virtualDialog
+	terminalInput                       *app.TextInput
+	terminalSlot                        flex.Box
+	terminalSlotSet                     bool
 	sessionWindows                      map[string]*sessionWindow
 }
 
@@ -63,7 +72,7 @@ type devicePresentation struct {
 func (u *UI) Wake() { u.wake.Invalidate() }
 
 func New(backend domain.Backend) *UI {
-	u := &UI{backend: backend, state: backend.State(), ids: map[string]ui.ID{}, section: "devices", filter: "all", category: "general"}
+	u := &UI{backend: backend, state: backend.State(), ids: map[string]ui.ID{}, section: "devices", filter: "all", category: "general", deviceTab: "overview"}
 	u.scope = u.tree.Feature("workspace")
 	for _, key := range strings.Fields("nav-devices nav-tasks nav-settings theme search filter-all filter-usb filter-wifi refresh add connect-address pair-address pair-code connect pair cancel size fps bitrate audio screen-off awake top start record stop capture install tcp disconnect save-options default-options settings-general settings-tools settings-about adb scrcpy output browse-adb browse-scrcpy browse-output save-settings open-output content-scroll device-scroll task-all task-running task-error close-confirm close-cancel") {
 		u.id(key)
@@ -153,14 +162,60 @@ func (u *UI) Config() app.Config {
 		WindowControls: func() app.WindowControlsStyle {
 			return app.WindowControlsStyle{Foreground: u.c.muted, Hover: u.c.selected, Close: ui.RGB(220, 48, 54), CloseForeground: ui.RGB(255, 255, 255), Minimize: "最小化", Maximize: "最大化", Restore: "还原", CloseName: "关闭"}
 		},
-		TextInput: flex.Fields(&u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output, &u.deviceName, &u.deviceAddress, &u.newDeviceName),
-		OnScroll:  u.view.Wheel, Paint: u.paint, OnWake: u.onWake,
+		TextInput: func(context app.TextInputContext) *app.TextInput {
+			if context.Terminal {
+				p := u.terminals[u.termFocus]
+				if p == nil {
+					return nil
+				}
+				if u.terminalInput == nil {
+					u.terminalInput = &app.TextInput{}
+				}
+				cursor := p.term.Cursor()
+				cellW, cellH := float32(8), float32(16)
+				u.terminalInput.Bounds = ui.Rect{X: context.Bounds.X + float32(cursor.X)*cellW, Y: context.Bounds.Y + float32(cursor.Y)*cellH, Width: cellW, Height: cellH}
+				u.terminalInput.OnEvent = func(event app.TextEvent) (app.TextState, error) {
+					switch event.Kind {
+					case app.TextInsert:
+						p.stream.Write([]byte(event.Text))
+					case app.TextPaste:
+						p.stream.Write(term.EncodePaste(event.Text, p.term.Modes().BracketedPaste))
+					}
+					return app.TextState{}, nil
+				}
+				return u.terminalInput
+			}
+			return flex.Fields(&u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output, &u.deviceName, &u.deviceAddress, &u.newDeviceName, &u.vd.width, &u.vd.height, &u.vd.dpi, &u.files.search, &u.files.name, &u.apps.search)(context)
+		},
+		OnKey: func(e ui.KeyEvent) ui.EventResult {
+			for _, selectState := range []*flex.SelectState{&u.vd.imeSelect, &u.vd.appSelect} {
+				if result := selectState.Key(e); result.Handled {
+					return result
+				}
+			}
+			if u.terminalKey(e) {
+				return ui.EventResult{Handled: true}
+			}
+			return ui.EventResult{}
+		},
+		OnScroll: func(e ui.ScrollEvent) ui.EventResult {
+			for _, selectState := range []*flex.SelectState{&u.vd.imeSelect, &u.vd.appSelect} {
+				if result := selectState.Wheel(e); result.Handled {
+					return result
+				}
+			}
+			if u.terminalWheel(e) {
+				return ui.EventResult{Handled: true, Repaint: true}
+			}
+			return u.view.Wheel(e)
+		}, Paint: u.paint, OnWake: u.onWake,
 		OnCloseRequest: func(allow func()) {
 			if len(u.state.Sessions) > 0 {
 				u.closing = true
 				u.allowClose = allow
 				u.wake.Invalidate()
 			} else {
+				u.closeTerminals()
 				u.closeSessionWindows()
 				allow()
 			}
@@ -169,6 +224,7 @@ func (u *UI) Config() app.Config {
 }
 
 func (u *UI) onWake() {
+	u.drainTerminals()
 	u.state = u.backend.State()
 	u.setTheme(u.state.Settings.Theme)
 	u.syncDevices()
@@ -198,6 +254,8 @@ func (u *UI) onWake() {
 			switch kind {
 			case "apk":
 				u.backend.Install(serial, paths[0])
+			case "upload":
+				u.backend.FileUpload(serial, paths[0], joinDevice(u.files.dir, filepath.Base(paths[0])))
 			case "adb":
 				u.adb.SetText(paths[0])
 			case "scrcpy":
@@ -214,6 +272,8 @@ func (u *UI) dialog(kind string) {
 }
 
 func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
+	u.terminalSlot = flex.Box{}
+	u.terminalSlotSet = false
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, u.c.bg)
 	u.view.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
@@ -236,6 +296,9 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 			})
 		})
 	})
+	if u.terminalSlotSet {
+		u.paintTerminal(canvas, u.terminalSlot.Rect(), u.termMode)
+	}
 }
 
 func (u *UI) rail(f *flex.Frame) {
@@ -392,7 +455,7 @@ func (u *UI) deviceRow(f *flex.Frame, d domain.Device) {
 		f.Row().Gap(6).Items(flex.Center).Children(func() {
 			u.dot(f, d.State == "device")
 			f.Text(present.rowStatus).FontSize(10).Color(u.c.muted)
-			if _, ok := u.state.Sessions[d.Serial]; ok {
+			if _, ok := u.state.Sessions[domain.SessionID(d.Serial, domain.SessionMirror)]; ok {
 				f.Text("投屏中").FontSize(10).Color(u.c.blue)
 			}
 		})
@@ -464,6 +527,7 @@ func (u *UI) content(f *flex.Frame) {
 		if u.notice != "" {
 			f.Paragraph(u.notice, 12).FillWidth().Pad(12).Background(u.c.selected).Radius(8).FontSize(12)
 		}
+		u.virtualDisplayCard(f)
 		if u.section == "settings" {
 			u.settings(f)
 			return
@@ -520,9 +584,8 @@ func (u *UI) empty(f *flex.Frame) {
 	u.small(f, "提示：未授权设备会出现在左侧列表中；无需安装额外的手机应用。")
 }
 
-func (u *UI) device(f *flex.Frame, d domain.Device) {
-	u.heading(f, "工作台 / 设备", d.Name(), "管理这台设备的投屏会话与常用操作。")
-	active, hasSession := u.state.Sessions[d.Serial]
+func (u *UI) deviceSettings(f *flex.Frame, d domain.Device) {
+	active, hasSession := u.state.Sessions[domain.SessionID(d.Serial, domain.SessionMirror)]
 	ready := d.State == "device"
 	u.card(f, func() {
 		f.Row().FillWidth().Gap(18).Items(flex.Center).Children(func() {
@@ -592,7 +655,7 @@ func (u *UI) device(f *flex.Frame, d domain.Device) {
 				u.start(true)
 			}
 			if f.Button(u.id("stop"), "停止会话").Height(38).Outline().Disabled(!hasSession || active.Status != "running").Clicked() {
-				u.backend.Stop(u.selected)
+				u.backend.Stop(domain.SessionID(u.selected, domain.SessionMirror))
 			}
 		})
 		if active.Recording != "" {

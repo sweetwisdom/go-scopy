@@ -42,16 +42,16 @@ func TestScrcpyArgumentsKeepPathsAndSerialAsSingleArguments(t *testing.T) {
 	o := domain.Options{MaxSize: 1920, FPS: 60, Bitrate: 8, ScreenOff: true, StayAwake: true, AlwaysOnTop: true}
 	path := `C:\录像 文件\a $test; 1.mp4`
 	serial := `device-$(echo)`
-	a, err := ScrcpyArgs(serial, o, path)
+	a, err := ScrcpyArgs(serial, o, nil, path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"--serial", serial, "--window-title", "Go-Scopy · " + serial, "--max-fps", "60", "--video-bit-rate", "8M", "--max-size", "1920", "--no-audio", "--turn-screen-off", "--stay-awake", "--always-on-top", "--record", path}
+	want := []string{"--serial", serial, "--window-title", "Go-Scopy · " + serial, "--max-fps", "60", "--video-bit-rate", "8M", "--max-size", "1920", "--no-audio", "--turn-screen-off", "--stay-awake", "--always-on-top", "--keyboard=sdk", "--record", path}
 	if !reflect.DeepEqual(a, want) {
 		t.Fatalf("%q", a)
 	}
 	o.FPS = 0
-	if _, err := ScrcpyArgs(serial, o, ""); err == nil {
+	if _, err := ScrcpyArgs(serial, o, nil, ""); err == nil {
 		t.Fatal("invalid parameters accepted")
 	}
 }

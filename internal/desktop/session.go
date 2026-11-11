@@ -18,6 +18,10 @@ var nextSessionWindow atomic.Uint64
 type sessionWindow struct {
 	owner                         *UI
 	serial, name                  string
+	session                       string // domain.SessionID of this window
+	kind                          domain.SessionKind
+	display                       *domain.VirtualDisplay
+	options                       domain.Options
 	window                        *app.Window
 	native                        *windowhost.Host
 	wake                          app.Invalidator
@@ -30,17 +34,24 @@ type sessionWindow struct {
 	attached, finished            bool
 	ready, ended, closing         bool
 	disposed, collapsed, dragging bool
-	recording                     bool
+	recording, restart, screenOff bool
 }
 
 func (u *UI) SetApplication(application *app.Application) { u.application = application }
 
 func (u *UI) startWindow(options domain.Options, record bool) bool {
+	return u.openSessionWindow(u.selected, domain.SessionMirror, nil, options, record)
+}
+
+// openSessionWindow opens the island control window and the session it
+// controls: the main screen mirror, or one virtual display.
+func (u *UI) openSessionWindow(serial string, kind domain.SessionKind, display *domain.VirtualDisplay, options domain.Options, record bool) bool {
 	backend, ok := u.backend.(domain.HostedBackend)
 	if !ok || u.application == nil || !windowhost.Supported || os.Getenv("VIVA_HEADLESS") == "1" {
 		return false
 	}
-	if existing := u.sessionWindows[u.selected]; existing != nil {
+	session := domain.SessionID(serial, kind)
+	if existing := u.sessionWindows[session]; existing != nil {
 		if !existing.ended {
 			existing.window.Show()
 			existing.native.Focus()
@@ -48,16 +59,21 @@ func (u *UI) startWindow(options domain.Options, record bool) bool {
 		}
 		existing.destroy()
 	}
-	name := u.selected
+	name := serial
 	for _, d := range u.state.Devices {
-		if d.Serial == u.selected {
+		if d.Serial == serial {
 			name = d.Name()
 			break
 		}
 	}
-	title := fmt.Sprintf("Go-Scopy Island · %s · #%d", name, nextSessionWindow.Add(1))
+	prefix := "Go-Scopy Island"
+	if kind == domain.SessionVirtual {
+		prefix = "Go-Scopy Virtual"
+	}
+	title := fmt.Sprintf("%s · %s · #%d", prefix, name, nextSessionWindow.Add(1))
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &sessionWindow{owner: u, serial: u.selected, name: name, ctx: ctx, cancel: cancel, collapsed: true, recording: record}
+	s := &sessionWindow{owner: u, serial: serial, name: name, session: session, kind: kind,
+		display: display, options: options, ctx: ctx, cancel: cancel, collapsed: true, recording: record}
 	s.scope = s.tree.Feature("session")
 	s.native = windowhost.New(title)
 	if err := s.openDock(title); err != nil {
@@ -69,8 +85,8 @@ func (u *UI) startWindow(options domain.Options, record bool) bool {
 	if u.sessionWindows == nil {
 		u.sessionWindows = map[string]*sessionWindow{}
 	}
-	u.sessionWindows[s.serial] = s
-	backend.StartHosted(s.serial, options, record, s)
+	u.sessionWindows[session] = s
+	backend.StartHosted(serial, session, options, display, record, s)
 	return true
 }
 
@@ -130,8 +146,8 @@ func (s *sessionWindow) dispose() {
 	s.disposed = true
 	s.cancel()
 	s.native.Release()
-	if s.owner.sessionWindows[s.serial] == s {
-		delete(s.owner.sessionWindows, s.serial)
+	if s.owner.sessionWindows[s.session] == s {
+		delete(s.owner.sessionWindows, s.session)
 	}
 }
 func (s *sessionWindow) destroy() {
@@ -141,6 +157,12 @@ func (s *sessionWindow) destroy() {
 	s.dispose()
 	if s.window != nil {
 		s.window.Close()
+	}
+	// A keyboard-mode change reopens the session with the new setting once
+	// the old scrcpy has exited and any recording is safely flushed.
+	if s.restart {
+		s.restart = false
+		s.owner.openSessionWindow(s.serial, s.kind, s.display, s.options, s.recording)
 	}
 }
 func (u *UI) closeSessionWindows() {

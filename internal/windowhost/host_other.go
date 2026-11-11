@@ -22,3 +22,6 @@ func (*Host) RefreshDock() {}
 func (*Host) BeginDrag()   {}
 func (*Host) MoveDrag()    {}
 func (*Host) EndDrag()     {}
+func (*Host) ScreenOff(bool) error {
+	return errors.New("当前平台不支持隐私模式快捷键")
+}

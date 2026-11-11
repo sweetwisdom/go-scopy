@@ -119,10 +119,76 @@ func (s *sessionWindow) paintTools(canvas *ui.Canvas, size ui.Size) {
 			s.native.Focus()
 		}
 	}
-	canvas.Label("拖动左侧短线 · 靠近屏幕边缘吸附", ui.Rect{X: 20, Y: 238, Width: 234, Height: 24}, ui.TextStyle{Size: 10, Color: muted})
-	if s.islandButton(canvas, "close-session", "结束", "", ui.Rect{X: size.Width - 74, Y: 235, Width: 58, Height: 28}, s.closing, true) {
+	// The two session toggles: keyboard injection mode and privacy screen.
+	keyboardLabel, keyboardState := "模拟实体键盘", "SDK 注入模式"
+	if s.options.Keyboard == domain.KeyboardUHID {
+		keyboardState = "UHID 实体键盘"
+	}
+	if s.islandToggle(canvas, "keyboard-mode", keyboardLabel, keyboardState, ui.Rect{X: 16, Y: 238, Width: size.Width - 32, Height: 38}, s.closing) {
+		s.toggleKeyboard()
+	}
+	privacyLabel, privacyState := "隐私模式", "屏幕开启"
+	if s.screenOff {
+		privacyState = "屏幕已关闭"
+	}
+	if s.islandToggle(canvas, "privacy-mode", privacyLabel, privacyState, ui.Rect{X: 16, Y: 282, Width: size.Width - 32, Height: 38}, s.closing || !s.ready) {
+		s.togglePrivacy()
+	}
+
+	canvas.Label("拖动左侧短线 · 靠近屏幕边缘吸附", ui.Rect{X: 20, Y: 328, Width: 234, Height: 24}, ui.TextStyle{Size: 10, Color: muted})
+	if s.islandButton(canvas, "close-session", "结束", "", ui.Rect{X: size.Width - 74, Y: 325, Width: 58, Height: 28}, s.closing, true) {
 		s.requestClose()
 	}
+}
+
+// islandToggle is a wide two-part button: the feature name on the left and
+// its current state on the right.
+func (s *sessionWindow) islandToggle(canvas *ui.Canvas, key, label, state string, bounds ui.Rect, disabled bool) bool {
+	id := s.tree.ID(s.scope, key)
+	fill, color := ui.RGB(28, 30, 36), ui.RGB(222, 226, 234)
+	if canvas.Hovered() == id || canvas.FocusVisible() == id {
+		fill = ui.RGB(48, 52, 62)
+	}
+	if canvas.Pressed() == id {
+		fill = ui.RGB(59, 65, 78)
+	}
+	if disabled {
+		color = ui.RGB(83, 88, 101)
+	}
+	canvas.Rounded(bounds, 12, fill)
+	canvas.HitWithOptions(id, bounds, label, ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand, Disabled: disabled})
+	canvas.Label(label, ui.Rect{X: bounds.X + 14, Y: bounds.Y, Width: bounds.Width / 2, Height: bounds.Height}, ui.TextStyle{Size: 12, Color: color})
+	canvas.Label(state, ui.Rect{X: bounds.X + bounds.Width/2, Y: bounds.Y, Width: bounds.Width/2 - 14, Height: bounds.Height}, ui.TextStyle{Size: 11, Color: ui.RGB(140, 147, 160)})
+	return !disabled && canvas.Clicked(id)
+}
+
+// toggleKeyboard flips the scrcpy keyboard mode and restarts this session:
+// the mode is a scrcpy startup parameter, and any recording is flushed by the
+// normal shutdown path before the new session opens.
+func (s *sessionWindow) toggleKeyboard() {
+	if s.options.Keyboard == domain.KeyboardUHID {
+		s.options.Keyboard = domain.KeyboardSDK
+	} else {
+		s.options.Keyboard = domain.KeyboardUHID
+	}
+	settings := s.owner.state.Settings
+	if settings.Devices == nil {
+		settings.Devices = map[string]domain.Options{}
+	}
+	saved := settings.OptionsFor(s.serial)
+	saved.Keyboard = s.options.Keyboard
+	settings.Devices[s.serial] = saved
+	s.owner.backend.Save(settings)
+	s.restart = true
+	s.requestClose()
+}
+
+// togglePrivacy turns the phone's screen off or on while mirroring keeps
+// running, by driving scrcpy's own screen shortcut on its window.
+func (s *sessionWindow) togglePrivacy() {
+	s.screenOff = !s.screenOff
+	s.native.ScreenOff(s.screenOff)
+	s.wake.Invalidate()
 }
 
 func (s *sessionWindow) islandButton(canvas *ui.Canvas, key, label, symbol string, bounds ui.Rect, disabled, danger bool) bool {
