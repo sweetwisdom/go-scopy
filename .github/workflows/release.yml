@@ -8,7 +8,7 @@ on:
       version:
         description: Release version (without v)
         required: true
-        default: '0.1.10'
+        default: '0.1.11'
         type: string
       publish:
         description: Publish a release (requires a version tag on this commit)
@@ -76,7 +76,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   release:
-    if: github.event_name == 'push' || inputs.publish
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -96,6 +95,7 @@ jobs:
       - name: Verify all nine packages and prepare checksums
         run: python3 scripts/verify-release.py
       - name: Publish GitHub Release
+        if: github.event_name == 'push' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

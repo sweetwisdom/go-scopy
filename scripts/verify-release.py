@@ -1,4 +1,4 @@
-"""Verify all native release archives/installers and write v0.1.10 release notes."""
+"""Verify all native release archives/installers and write release notes."""
 import hashlib
 import json
 import os
@@ -132,6 +132,10 @@ def verify_dmg(path, target, version, commit):
 
 def release_notes(version, commit):
     return f"""Go-Scopy v{version}
+
+### 发布修复
+- 修复 Linux/macOS 测试助手对 Unix SIGINT 的处理，避免停止会话测试错过中间状态而阻止打包；生产停止逻辑不变。
+- 发布流程拆分测试、静态检查和打包；支持仅验证，并校验版本标签与源提交一致。
 
 ### 设备概况与屏幕预览
 - 设备连接、重连或进入设备概况时自动获取截图；概况页默认每 5 秒刷新，设置中支持 1–300 秒，0 关闭定时刷新。
