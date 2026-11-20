@@ -102,27 +102,33 @@ func clean(t *testing.T, s *headless.Session) {
 func TestDeviceActionsUseSelectedSerialAndValidateParameters(t *testing.T) {
 	f := sample()
 	u, s := openUI(t, f)
+	// The selected device must also be used by the recording launch handler.
+	if err := s.Resize(1240, 1800); err != nil {
+		t.Fatal(err)
+	}
 	clean(t, s)
-	click(t, s, "设备设置")
-	click(t, s, "开始投屏")
+	click(t, s, "投屏")
 	if f.action != "start" || f.serial != "USB-DEMO-01" || f.record {
 		t.Fatalf("unexpected action: %+v", f)
 	}
 	click(t, s, "Xiaomi 15")
-	click(t, s, "投屏并录屏")
+	u.start(true)
 	if f.serial != "192.168.1.28:37001" || !f.record {
 		t.Fatal("recording targeted wrong device")
 	}
 	u.fps.SetText("0")
 	f.action = ""
-	click(t, s, "开始投屏")
+	click(t, s, "投屏")
 	if f.action != "" || !strings.Contains(u.notice, "帧率") {
 		t.Fatal("invalid parameters were dispatched")
 	}
 	click(t, s, "Galaxy S25")
+	s.Driver().Pump()
 	f.action = ""
-	if _, exists := s.Hit("开始投屏"); exists {
-		t.Fatal("unauthorized start must not be interactive")
+	for _, hit := range s.Snapshot().Hits {
+		if hit.Label == "投屏" && !hit.Disabled {
+			t.Fatal("unauthorized start must be disabled")
+		}
 	}
 	if f.action != "" {
 		t.Fatal("unauthorized device started")
@@ -150,23 +156,22 @@ func TestWirelessPairingClearsSecretAndKeepsPortsSeparate(t *testing.T) {
 func TestDeviceRenameAndWirelessRecordEditor(t *testing.T) {
 	f := sample()
 	u, s := openUI(t, f)
-	click(t, s, "设备设置")
-	click(t, s, "重命名")
+	click(t, s, "编辑设备 · "+u.dialogDevice(u.selected).Name())
 	u.deviceName.SetText(strings.Repeat("机", 41))
 	f.action = ""
-	click(t, s, "保存名称")
+	click(t, s, "保存设备")
 	if f.action != "" || !strings.Contains(u.notice, "40") || u.renameSerial == "" {
 		t.Fatal("invalid name was saved or editor closed")
 	}
 	u.deviceName.SetText("我的 Pixel")
-	click(t, s, "保存名称")
+	click(t, s, "保存设备")
 	s.Driver().Pump()
-	if f.state.Settings.DeviceNames["USB-DEMO-01"] != "我的 Pixel" || !s.HasText("我的 Pixel") || !s.HasText("Pixel 9 Pro") {
+	if f.state.Settings.DeviceNames["USB-DEMO-01"] != "我的 Pixel" || !s.HasText("我的 Pixel") {
 		t.Fatal("rename lost model or was not displayed")
 	}
-	click(t, s, "重命名")
+	click(t, s, "编辑设备 · "+u.dialogDevice(u.selected).Name())
 	u.deviceName.SetText("discarded")
-	click(t, s, "取消重命名")
+	click(t, s, "取消")
 	if f.state.Settings.DeviceNames["USB-DEMO-01"] != "我的 Pixel" {
 		t.Fatal("cancel changed name")
 	}
@@ -182,22 +187,18 @@ func TestDeviceRenameAndWirelessRecordEditor(t *testing.T) {
 	f.state.Devices = append(f.state.Devices, domain.Device{Serial: "10.168.2.20:5555", State: "offline", Connection: "Wi-Fi"})
 	f.notify()
 	s.Driver().Pump()
+	s.Resize(1240, 1100)
 	click(t, s, "备用手机")
 	u.connecting = false
 	s.Driver().Pump()
-	click(t, s, "设备设置")
-	// The management tabs moved the saved-device action below the fold on
-	// smaller headless snapshots; exercise the settings editor directly here.
-	u.renameSerial = "10.168.2.20:5555"
-	u.deviceAddress.SetText("10.168.2.20:5555")
-	u.deviceName.SetText("备用手机")
+	click(t, s, "编辑设备 · 备用手机")
 	u.deviceAddress.SetText("10.168.2.21:5555")
 	u.deviceName.SetText("更新的手机")
-	for _, size := range [][2]int{{1000, 700}, {1240, 820}} {
+	for _, size := range [][2]int{{1000, 700}, {1240, 1100}} {
 		s.Resize(size[0], size[1])
 		clean(t, s)
 	}
-	click(t, s, "保存名称")
+	click(t, s, "保存设备")
 	s.Driver().Pump()
 	if !f.state.Settings.SavedWireless["10.168.2.21:5555"] || f.state.Settings.SavedWireless["10.168.2.20:5555"] {
 		t.Fatal("wireless address edit failed")
@@ -208,14 +209,13 @@ func TestDeviceRenameAndWirelessRecordEditor(t *testing.T) {
 	click(t, s, "更新的手机")
 	u.connecting = false
 	s.Driver().Pump()
-	click(t, s, "设备设置")
 	s.Resize(1240, 1400)
-	click(t, s, "删除记录")
+	click(t, s, "删除记录 · 更新的手机")
 	click(t, s, "保留记录")
 	if !f.state.Settings.SavedWireless["10.168.2.21:5555"] {
 		t.Fatal("cancel deleted record")
 	}
-	click(t, s, "删除记录")
+	click(t, s, "删除记录 · 更新的手机")
 	click(t, s, "确认删除记录")
 	if f.state.Settings.SavedWireless["10.168.2.21:5555"] {
 		t.Fatal("delete retained record")

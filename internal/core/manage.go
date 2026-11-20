@@ -16,6 +16,10 @@ import (
 // same key. Results land in State; the UI is woken when they arrive.
 func (s *Service) fetch(key string, work func(ctx context.Context)) {
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
 	if s.inflight == nil {
 		s.inflight = map[string]bool{}
 	}
@@ -24,8 +28,8 @@ func (s *Service) fetch(key string, work func(ctx context.Context)) {
 		return
 	}
 	s.inflight[key] = true
-	s.mu.Unlock()
 	s.wg.Add(1)
+	s.mu.Unlock()
 	go func() {
 		defer s.wg.Done()
 		defer func() {
@@ -100,12 +104,18 @@ func (s *Service) FetchFiles(serial, dir string) {
 }
 
 func (s *Service) FetchApps(serial string) {
+	epoch := s.appCacheEpoch.Load()
 	s.fetch("apps:"+serial, func(ctx context.Context) {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		key := s.appCacheDevice(ctx, serial)
 		s.mu.Lock()
 		previous, exists := s.state.Apps[serial]
+		if s.appCacheKeys == nil {
+			s.appCacheKeys = map[string]string{}
+		}
+		s.appCacheKeys[serial] = key
+		delete(s.agentBatches, serial)
 		s.mu.Unlock()
 		if !exists || len(previous.Apps) == 0 {
 			if apps, err := s.loadAppCache(key); err == nil {
@@ -113,23 +123,47 @@ func (s *Service) FetchApps(serial string) {
 			}
 		}
 		previous.Refreshing, previous.Error = true, ""
+		s.hydrateAppMetadata(epoch, previous.Apps)
 		s.mu.Lock()
+		if s.appCacheEpoch.Load() != epoch {
+			s.mu.Unlock()
+			return
+		}
 		s.setAppListing(serial, previous)
 		s.mu.Unlock()
 		s.wake()
 
-		apps, err := s.tool.ListApps(ctx, serial)
+		apps, err := s.tool.ListAppPackages(ctx, serial)
+		// Installation details stay local. Names/icons are resolved separately
+		// from the package-keyed global cache, without a device fingerprint.
+		old := map[string]domain.AppInfo{}
+		for _, a := range previous.Apps {
+			old[a.Package] = a
+		}
+		for i, a := range apps {
+			if cached := old[a.Package]; a.APKPath != "" && cached.APKPath == a.APKPath && a.VersionCode != "" && cached.VersionCode == a.VersionCode {
+				apps[i].Label, apps[i].VersionName, apps[i].SizeBytes, apps[i].CanLaunch = cached.Label, cached.VersionName, cached.SizeBytes, cached.CanLaunch
+			}
+		}
 		listing := domain.AppListing{Apps: apps}
 		if err != nil {
 			listing = previous
 			listing.Refreshing, listing.Error = false, err.Error()
 		}
+		missingMetadata := s.hydrateAppMetadata(epoch, listing.Apps)
 		s.mu.Lock()
+		if s.appCacheEpoch.Load() != epoch {
+			s.mu.Unlock()
+			return
+		}
 		s.setAppListing(serial, listing)
 		s.mu.Unlock()
 		s.wake()
 		if err == nil {
-			_ = s.saveAppCache(key, apps)
+			_ = s.saveAppSnapshot(epoch, key, appSnapshot(apps))
+			if missingMetadata {
+				s.fetch("enrich-apps:"+serial, func(ctx context.Context) { _, _ = s.agentAppMeta(ctx, serial, "") })
+			}
 		}
 	})
 }
@@ -137,20 +171,35 @@ func (s *Service) FetchApps(serial string) {
 // FetchAppMeta resolves one row's label and icon. The UI asks for the rows it
 // shows; the fetch is coalesced so scrolling cannot multiply the work.
 func (s *Service) FetchAppMeta(serial, apkPath, pkg string) {
+	s.mu.Lock()
+	local := s.state.AppMetas[serial+"\x00"+pkg]
+	skip := s.state.Apps[serial].Refreshing || completeAppMeta(s.state.SharedAppMetas[pkg]) || local.Resolved || local.Error != ""
+	s.mu.Unlock()
+	if skip {
+		return
+	}
 	s.fetch("meta:"+serial+"\x00"+pkg, func(ctx context.Context) {
-		ctx, cancel := context.WithTimeout(ctx, time.Minute)
+		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
-		meta := domain.AppMeta{Package: pkg}
-		label, icon, err := s.tool.AppMeta(ctx, serial, apkPath)
-		if err != nil {
-			meta.Error = err.Error()
-		}
-		meta.Label, meta.IconPNG = label, icon
 		s.mu.Lock()
-		if s.state.AppMetas == nil {
-			s.state.AppMetas = map[string]domain.AppMeta{}
+		generation := s.appListingGeneration[serial]
+		s.mu.Unlock()
+		meta := s.resolveAppMeta(ctx, serial, apkPath, pkg)
+		s.mu.Lock()
+		// Do not resurrect metadata for a removed/replaced application after refresh.
+		current := false
+		for _, a := range s.state.Apps[serial].Apps {
+			if a.Package == pkg && (apkPath == "" || a.APKPath == apkPath) {
+				current = true
+				break
+			}
 		}
-		s.state.AppMetas[serial+"\x00"+pkg] = meta
+		if current && generation == s.appListingGeneration[serial] {
+			if s.state.AppMetas == nil {
+				s.state.AppMetas = map[string]domain.AppMeta{}
+			}
+			s.state.AppMetas[serial+"\x00"+pkg] = meta
+		}
 		s.mu.Unlock()
 		s.wake()
 	})

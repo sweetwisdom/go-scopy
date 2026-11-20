@@ -10,10 +10,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-scopy/go-scopy/internal/config"
@@ -22,21 +22,38 @@ import (
 )
 
 type Service struct {
-	scripts    *scriptService
-	mu         sync.Mutex
-	appCacheMu sync.Mutex
-	configMu   sync.Mutex
-	state      domain.State
-	tool       tools.Tools
-	dir        string
-	ctx        context.Context
-	cancel     context.CancelFunc
-	notify     func()
-	processes  map[string]*tools.Process
-	inflight   map[string]bool
-	closed     bool
-	wg         sync.WaitGroup
-	next       uint64
+	scripts           *scriptService
+	mu                sync.Mutex
+	appCacheMu        sync.Mutex
+	previewCancel     context.CancelFunc
+	previewGeneration uint64
+	appMetaSlots      chan struct{}
+	agentBatches      map[string]*appAgentBatch
+	appCacheWrites    int
+	appCacheEpoch     atomic.Uint64
+	sharedAppBytes    int
+
+	appListingGeneration map[string]uint64
+	wirelessOpMu         sync.Mutex
+	wirelessKnown        map[string]domain.Device
+	wirelessBlocked      map[string]bool
+	wirelessIntent       map[string]uint64
+	wirelessAttempt      map[string]context.CancelFunc
+	recoveryMessage      string
+
+	appCacheKeys map[string]string
+	configMu     sync.Mutex
+	state        domain.State
+	tool         tools.Tools
+	dir          string
+	ctx          context.Context
+	cancel       context.CancelFunc
+	notify       func()
+	processes    map[string]*tools.Process
+	inflight     map[string]bool
+	closed       bool
+	wg           sync.WaitGroup
+	next         uint64
 }
 
 func New(dir, root string) (*Service, error) {
@@ -91,9 +108,21 @@ func (s *Service) State() domain.State {
 	v.Files = cloneMap(v.Files)
 	v.Apps = cloneMap(v.Apps)
 	v.AppMetas = cloneMap(v.AppMetas)
+	v.SharedAppMetas = cloneMap(v.SharedAppMetas)
+	v.AppCacheGeneration = s.appCacheEpoch.Load()
 	seen := make(map[string]bool, len(v.Devices))
 	for _, d := range v.Devices {
 		seen[d.Serial] = true
+	}
+	for serial, device := range s.wirelessKnown {
+		if !seen[serial] && !s.wirelessBlocked[serial] {
+			device.State = "offline"
+			v.Devices = append(v.Devices, device)
+			seen[serial] = true
+		}
+	}
+	if s.recoveryMessage != "" {
+		v.Connection += " · " + s.recoveryMessage
 	}
 	for address, saved := range v.Settings.SavedWireless {
 		if saved && !seen[address] {
@@ -119,6 +148,12 @@ func (s *Service) connection(message string, offline bool) {
 	s.mu.Lock()
 	changed := s.state.Connection != message
 	s.state.Connection = message
+	if offline {
+		s.agentBatches = nil
+		for serial := range s.appListingGeneration {
+			s.appListingGeneration[serial]++
+		}
+	}
 	if offline && len(s.state.Devices) > 0 {
 		s.state.Devices = nil
 		changed = true
@@ -162,37 +197,10 @@ func (s *Service) monitor() {
 		_, err := s.tool.Run(ctx, "start-server")
 		cancel()
 		if err == nil {
+			s.fetch("wireless-recovery", s.recoverWireless)
 			err = tools.Track(s.ctx, func(devices []domain.Device) {
-				s.mu.Lock()
-				changed := !reflect.DeepEqual(s.state.Devices, devices) || s.state.Connection != "设备监听已连接"
-				old := s.state.Devices
-				s.state.Devices = devices
-				s.state.Connection = "设备监听已连接"
-				var disconnected []*tools.Process
-				for _, before := range old {
-					online := false
-					for _, after := range devices {
-						if after.Serial == before.Serial && after.State == "device" {
-							online = true
-						}
-					}
-					if !online {
-						// A device may run a mirror and a virtual-display session
-						// at once; both belong to the device and both must end.
-						for id, p := range s.processes {
-							if session, ok := s.state.Sessions[id]; ok && session.Serial == before.Serial {
-								disconnected = append(disconnected, p)
-							}
-						}
-					}
-				}
-				s.mu.Unlock()
-				if changed {
-					s.wake()
-				}
-				for _, p := range disconnected {
-					p.RequestStop()
-				}
+				delay = time.Second
+				s.acceptDevices(devices)
 			})
 		}
 		if s.ctx.Err() != nil {
@@ -288,13 +296,25 @@ func (s *Service) Refresh() {
 
 func (s *Service) Connect(address string) {
 	address = strings.TrimSpace(address)
+	version := uint64(0)
+	if tools.ValidateAddress(address) == nil {
+		version = s.setWirelessIntent(address, true)
+	}
 	s.submit("连接无线设备", func(ctx context.Context) (string, string, error) {
 		if err := tools.ValidateAddress(address); err != nil {
 			return "", "", err
 		}
+		s.wirelessOpMu.Lock()
+		defer s.wirelessOpMu.Unlock()
+		if !s.wirelessIntentCurrent(address, version) {
+			return "连接请求已被后续操作取消", "", nil
+		}
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		out, err := s.tool.Connect(ctx, address)
+		if err == nil {
+			s.rememberWireless(address, version)
+		}
 		return strings.TrimSpace(string(out)), "", err
 	})
 }
@@ -320,9 +340,18 @@ func (s *Service) Pair(address, code string) {
 }
 
 func (s *Service) Disconnect(serial string) {
+	version := uint64(0)
+	if tools.ValidateAddress(serial) == nil {
+		version = s.setWirelessIntent(serial, false)
+	}
 	s.submit("断开无线设备", func(ctx context.Context) (string, string, error) {
 		if err := tools.ValidateAddress(serial); err != nil {
 			return "", "", errors.New("仅支持断开以 IP:端口连接的无线设备")
+		}
+		s.wirelessOpMu.Lock()
+		defer s.wirelessOpMu.Unlock()
+		if !s.wirelessIntentCurrent(serial, version) {
+			return "断开请求已被后续操作取消", "", nil
 		}
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -483,7 +512,12 @@ func (s *Service) start(serial, session string, kind domain.SessionKind, options
 				return "", path, err
 			}
 		}
-		p, err := s.tool.Start(serial, options, display, path)
+		identity, cleanupIdentity, err := s.sessionIdentity(ctx, serial, display)
+		if err != nil {
+			return "", path, err
+		}
+		defer cleanupIdentity()
+		p, err := s.tool.StartWindow(serial, options, display, path, identity)
 		if err != nil {
 			if path != "" {
 				os.Remove(path)
@@ -674,6 +708,11 @@ func (s *Service) Save(settings domain.Settings) {
 		}
 		s.mu.Lock()
 		restart := s.state.Settings.ADBPath != settings.ADBPath || s.state.Settings.ScrcpyPath != settings.ScrcpyPath
+		for address, saved := range s.state.Settings.SavedWireless {
+			if saved && !settings.SavedWireless[address] {
+				delete(s.wirelessKnown, address)
+			}
+		}
 		s.state.Settings = settings
 		s.mu.Unlock()
 		if restart {

@@ -200,10 +200,15 @@ func build() error {
 			return err
 		}
 	}
-	for _, dir := range []string{"licenses", "docs"} {
+	for _, dir := range []string{"licenses"} {
 		if err := copyTree(dir, filepath.Join(root, dir)); err != nil {
 			return err
 		}
+	}
+	// Only ship the maintained user guide, not ignored local review reports or
+	// screenshots that happen to be present in the developer's docs directory.
+	if err := copyFile("docs/python-script-development.md", filepath.Join(root, "docs", "python-script-development.md")); err != nil {
+		return err
 	}
 	info := map[string]string{"version": *version, "commit": *commit, "os": runtime.GOOS, "arch": runtime.GOARCH, "go": runtime.Version(), "viva": "v0.2.3", "scrcpy": "4.1", "toolSource": "escrcpy 3a73e0d4de58a4674dddd61fc43956b4882c8bec", "validation": "native build and bundled tool versions; physical device acceptance is separate"}
 	b, _ := json.MarshalIndent(info, "", "  ")
@@ -230,6 +235,9 @@ func build() error {
 	}
 	if *installer {
 		return buildWindowsInstaller(root, *version, *out, *makensis)
+	}
+	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+		return run("python3", "scripts/package-installers.py", "--root", root, "--out", *out)
 	}
 	return nil
 }

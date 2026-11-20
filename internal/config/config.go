@@ -17,7 +17,7 @@ import (
 
 func Default() domain.Settings {
 	home, _ := os.UserHomeDir()
-	return domain.Settings{Theme: "light", OutputDir: filepath.Join(home, "Videos", "Go-Scopy"), Defaults: domain.Options{MaxSize: 1920, FPS: 60, Bitrate: 8, Audio: true}, Devices: map[string]domain.Options{}}
+	return domain.Settings{ScreenPreviewIntervalSeconds: 5, Theme: "light", OutputDir: filepath.Join(home, "Videos", "Go-Scopy"), Defaults: domain.Options{MaxSize: 1920, FPS: 60, Bitrate: 8, Audio: true}, Devices: map[string]domain.Options{}}
 }
 
 func Directory() (string, error) {
@@ -63,6 +63,9 @@ func ValidateOptions(o domain.Options) error {
 }
 
 func Validate(s domain.Settings) error {
+	if s.ScreenPreviewIntervalSeconds < 0 || s.ScreenPreviewIntervalSeconds > 300 {
+		return errors.New("截图自动刷新间隔应为 0–300 秒，0 表示关闭定时刷新")
+	}
 	if s.Theme != "light" && s.Theme != "dark" {
 		return errors.New("外观必须是 light 或 dark")
 	}

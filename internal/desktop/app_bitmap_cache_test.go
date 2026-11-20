@@ -88,14 +88,14 @@ func TestPackageGrid256ReusesDecodedIcons(t *testing.T) {
 	if len(u.apps.bitmaps.entries) != 256 {
 		t.Fatalf("expected 256 decoded icons, got %d", len(u.apps.bitmaps.entries))
 	}
-	e := u.apps.bitmaps.entries["USB-DEMO-01\x00com.example.app000"].Value.(appBitmapEntry)
+	e := u.apps.bitmaps.entries["com.example.app000"].Value.(appBitmapEntry)
 	original := &e.bitmap.Pix[0]
 	for _, width := range []int{1100, 1400, 1240} {
 		if err := s.Resize(width, 820); err != nil {
 			t.Fatal(err)
 		}
 	}
-	e = u.apps.bitmaps.entries["USB-DEMO-01\x00com.example.app000"].Value.(appBitmapEntry)
+	e = u.apps.bitmaps.entries["com.example.app000"].Value.(appBitmapEntry)
 	if original != &e.bitmap.Pix[0] {
 		t.Fatal("window redraw decoded icons again")
 	}

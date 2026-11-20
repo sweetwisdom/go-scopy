@@ -22,10 +22,12 @@ func TestVirtualLaunchFallsBackAndDoesNotReusePreviousLaunch(t *testing.T) {
 	f := &virtualFixture{fixture: sample()}
 	u := New(f)
 	u.openVirtualDialog(u.selected)
-	u.vd.appPackages = []string{"com.example.first"}
+	f.state.Apps = map[string]domain.AppListing{u.selected: {Apps: []domain.AppInfo{{Package: "com.example.first"}, {Package: "com.example.second"}}}}
+	u.state = f.state
+	u.vd.selectedApp = "com.example.first"
 	u.launchVirtualDialog()
 	u.openVirtualDialog(u.selected)
-	u.vd.appPackages = []string{"com.example.second"}
+	u.vd.selectedApp = "com.example.second"
 	u.launchVirtualDialog()
 	if len(f.launches) != 2 || f.launches[0].StartApp != "com.example.first" || f.launches[1].StartApp != "com.example.second" || f.serial != u.selected {
 		t.Fatalf("virtual launch lost: %+v", f.launches)

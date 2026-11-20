@@ -15,8 +15,17 @@ import (
 )
 
 // appsState is the app-packages tab's own view state.
+type appMetaRow struct {
+	box    flex.Box
+	serial string
+	app    domain.AppInfo
+}
+
 type appsState struct {
+	rows            []appMetaRow
+	listBox         flex.Box
 	bitmaps         appBitmapCache
+	cacheGeneration uint64
 	search          flex.Field
 	filter          string // "all" | "user" | "system"
 	selected        map[string]bool
@@ -172,7 +181,7 @@ func (u *UI) devicePackages(f *flex.Frame, d domain.Device) {
 			u.small(f, "没有匹配的应用。")
 			return
 		}
-		f.ScrollArea(u.id("apps-list-scroll")).FillWidth().Height(480).Children(func() {
+		u.apps.listBox = f.ScrollArea(u.id("apps-list-scroll")).FillWidth().Height(480).Children(func() {
 			f.Grid(360).FillWidth().Gap(8).Children(func() {
 				for _, a := range apps {
 					u.appRow(f, d, a)
@@ -184,16 +193,9 @@ func (u *UI) devicePackages(f *flex.Frame, d domain.Device) {
 
 func (u *UI) appRow(f *flex.Frame, d domain.Device, a domain.AppInfo) {
 	ready := d.State == "device"
-	meta := u.state.AppMetas[d.Serial+"\x00"+a.Package]
-	label := meta.Label
-	if label == "" {
-		label = a.Label
-	}
-	if label == "" {
-		label = a.Package
-	}
+	meta := u.appMeta(d.Serial, a.Package)
 	checked := u.apps.selected[a.Package]
-	f.Row().FillWidth().Height(52).Gap(10).PadX(10).Items(flex.Center).HoverBackground(u.c.selected).Children(func() {
+	row := f.Row().FillWidth().Height(52).Gap(10).PadX(10).Items(flex.Center).HoverBackground(u.c.selected).Children(func() {
 		if f.Checkbox(u.id("app-check-"+a.Package), checked).Clicked() {
 			if checked {
 				delete(u.apps.selected, a.Package)
@@ -202,26 +204,7 @@ func (u *UI) appRow(f *flex.Frame, d domain.Device, a domain.AppInfo) {
 			}
 			u.wake.Invalidate()
 		}
-		icon := meta.IconPNG
-		if len(icon) == 0 {
-			icon = a.IconPNG
-		}
-		if bmp, ok := u.apps.bitmaps.bitmap(d.Serial+"\x00"+a.Package, icon); ok {
-			f.Image(bmp).Size(34, 34).Radius(8)
-		} else {
-			f.Stack().Size(34, 34).Radius(8).Background(u.c.selected).Center().Children(func() {
-				f.Text(strings.ToUpper(firstChar(label))).FontSize(14).Weight(ui.WeightSemibold).Color(u.c.blue)
-			})
-		}
-		f.Column().Grow(1).Gap(2).Children(func() {
-			f.Row().Gap(6).Items(flex.Center).Children(func() {
-				f.Text(label).FontSize(13).Weight(ui.WeightMedium).Ellipsis()
-				if a.System {
-					f.Text("系统").FontSize(9).Shrink(0).Color(u.c.muted).PadX(6).PadY(2).Radius(6).Background(u.c.selected)
-				}
-			})
-			f.Text(a.Package).FontSize(11).Color(u.c.muted).Ellipsis()
-		})
+		u.appIdentity(f, d.Serial, a)
 		f.Text(formatBytes(a.SizeBytes)).FontSize(12).Color(u.c.muted).Width(86)
 		version := a.VersionName
 		if version == "" {
@@ -237,6 +220,9 @@ func (u *UI) appRow(f *flex.Frame, d domain.Device, a domain.AppInfo) {
 			u.wake.Invalidate()
 		}
 	})
+	if ready && !meta.Resolved && meta.Error == "" {
+		u.apps.rows = append(u.apps.rows, appMetaRow{box: row, serial: d.Serial, app: a})
+	}
 	if u.apps.menuFor != a.Package {
 		return
 	}
@@ -259,10 +245,6 @@ func (u *UI) appRow(f *flex.Frame, d domain.Device, a domain.AppInfo) {
 			}
 		})
 	})
-	// Ask for this row's label and icon once it is on screen.
-	if meta.Label == "" && len(meta.IconPNG) == 0 && a.Label == "" && len(a.IconPNG) == 0 && meta.Error == "" {
-		u.backend.FetchAppMeta(d.Serial, a.APKPath, a.Package)
-	}
 }
 
 func (u *UI) appIsSystem(apps []domain.AppInfo, pkg string) bool {
@@ -277,17 +259,21 @@ func (u *UI) appIsSystem(apps []domain.AppInfo, pkg string) bool {
 // filterApps applies the search box (package name or fetched label) and the
 // user/system filter.
 func (u *UI) filterApps(serial string, apps []domain.AppInfo) []domain.AppInfo {
-	query := strings.ToLower(strings.TrimSpace(u.apps.search.Text()))
+	return u.filterAppList(serial, apps, u.apps.search.Text(), u.apps.filter)
+}
+
+func (u *UI) filterAppList(serial string, apps []domain.AppInfo, query, kind string) []domain.AppInfo {
+	query = strings.ToLower(strings.TrimSpace(query))
 	var found []domain.AppInfo
 	for _, a := range apps {
-		if u.apps.filter == "user" && a.System {
+		if kind == "user" && a.System {
 			continue
 		}
-		if u.apps.filter == "system" && !a.System {
+		if kind == "system" && !a.System {
 			continue
 		}
 		if query != "" {
-			label := u.state.AppMetas[serial+"\x00"+a.Package].Label
+			label := u.appMeta(serial, a.Package).Label
 			if label == "" {
 				label = a.Label
 			}
@@ -321,11 +307,15 @@ func firstChar(s string) string {
 // appIconBitmap converts one app icon's PNG bytes to a canvas bitmap. The ID
 // identifies the package; Version changes with the PNG, including across devices.
 func appIconBitmap(pkg string, data []byte) (ui.Bitmap, bool) {
+	return pngBitmap(pkg, data, 96, 2048, 4<<20)
+}
+
+func pngBitmap(pkg string, data []byte, maxSide, maxDimension, maxBytes int) (ui.Bitmap, bool) {
 	if len(data) == 0 {
 		return ui.Bitmap{}, false
 	}
 	config, err := png.DecodeConfig(bytes.NewReader(data))
-	if err != nil || config.Width <= 0 || config.Height <= 0 || config.Width > 2048 || config.Height > 2048 || len(data) > 4<<20 {
+	if err != nil || config.Width <= 0 || config.Height <= 0 || config.Width > maxDimension || config.Height > maxDimension || int64(config.Width)*int64(config.Height) > 32<<20 || len(data) > maxBytes {
 		return ui.Bitmap{}, false
 	}
 	img, err := png.Decode(bytes.NewReader(data))
@@ -344,8 +334,8 @@ func appIconBitmap(pkg string, data []byte) (ui.Bitmap, bool) {
 	}
 	// The row displays 34 logical pixels. Bound retained pixels for high-DPI
 	// rendering instead of keeping full-resolution (sometimes 1024px) icons.
-	if largest := max(w, h); largest > 96 {
-		w, h = max(1, w*96/largest), max(1, h*96/largest)
+	if largest := max(w, h); largest > maxSide {
+		w, h = max(1, w*maxSide/largest), max(1, h*maxSide/largest)
 	}
 	pix := make([]byte, w*h*4)
 	i := 0
@@ -367,4 +357,66 @@ func appIconBitmap(pkg string, data []byte) (ui.Bitmap, bool) {
 	content := fnv.New32a()
 	content.Write(data)
 	return ui.Bitmap{ID: hsh.Sum64() | 1, Version: content.Sum32(), Width: w, Height: h, Stride: w * 4, Pix: pix}, true
+}
+
+// Rectangles are available after layout. Request only rows intersecting both
+// the inner list viewport and the window, rather than every declared grid row.
+func (u *UI) fetchVisibleAppMetas(bounds ui.Rect) {
+	rows, listBox := u.apps.rows, u.apps.listBox
+	if u.vd.open {
+		rows, listBox = u.vd.rows, u.vd.listBox
+	} else if u.deviceDialogOpen() {
+		return
+	}
+	if len(rows) == 0 {
+		return
+	}
+	list := listBox.Rect()
+	top, bottom := max(list.Y, bounds.Y+44), min(list.Bottom(), bounds.Bottom()-28)
+	for _, row := range rows {
+		rect := row.box.Rect()
+		if rect.Bottom() > top && rect.Y < bottom && rect.Right() > list.X && rect.X < list.Right() {
+			u.backend.FetchAppMeta(row.serial, row.app.APKPath, row.app.Package)
+		}
+	}
+}
+
+// Names and icons are shared by package; installation data remains device-scoped.
+func (u *UI) appMeta(serial, pkg string) domain.AppMeta {
+	if meta, ok := u.state.SharedAppMetas[pkg]; ok {
+		return meta
+	}
+	return u.state.AppMetas[serial+"\x00"+pkg]
+}
+
+// appIdentity is shared by management rows and the virtual-display app picker.
+func (u *UI) appIdentity(f *flex.Frame, serial string, a domain.AppInfo) {
+	meta := u.appMeta(serial, a.Package)
+	label := meta.Label
+	if label == "" {
+		label = a.Label
+	}
+	if label == "" {
+		label = a.Package
+	}
+	icon := meta.IconPNG
+	if len(icon) == 0 {
+		icon = a.IconPNG
+	}
+	if bmp, ok := u.apps.bitmaps.bitmap(a.Package, icon); ok {
+		f.Image(bmp).Size(34, 34).Shrink(0)
+	} else {
+		f.Stack().Size(34, 34).Shrink(0).Radius(8).Background(u.c.selected).Center().Children(func() {
+			f.Text(strings.ToUpper(firstChar(label))).FontSize(14).Weight(ui.WeightSemibold).Color(u.c.blue)
+		})
+	}
+	f.Column().Width(0).Grow(1).Gap(2).Children(func() {
+		f.Row().FillWidth().Gap(6).Items(flex.Center).Children(func() {
+			f.Text(label).Width(0).Grow(1).FontSize(13).Weight(ui.WeightMedium).Ellipsis()
+			if a.System {
+				f.Text("系统").FontSize(9).Shrink(0).Color(u.c.muted).PadX(6).PadY(2).Radius(6).Background(u.c.selected)
+			}
+		})
+		f.Text(a.Package).FillWidth().FontSize(11).Color(u.c.muted).Ellipsis()
+	})
 }

@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	agentDeviceJar = "/data/local/tmp/go-scrcpy-agent.jar"
-	agentSocket    = "localabstract:go-scrcpy-agent"
-	agentMaxBlock  = 16 << 20
+	agentDeviceJar   = "/data/local/tmp/go-scrcpy-agent.jar"
+	agentSocket      = "localabstract:go-scrcpy-agent"
+	agentMaxBlock    = 16 << 20
+	agentMaxResponse = 64 << 20
 	// Preserve native icon sizes; the bundled Agent truncates ratios when shrinking.
 	agentIconSize = 1024
 )
@@ -70,6 +71,9 @@ func (t Tools) readAgentApps(ctx context.Context, serial string) ([]AppInfo, err
 }
 
 func readAgentAppsResponse(conn io.Reader) ([]AppInfo, error) {
+	// Per-block bounds alone still permit thousands of large retained icons.
+	// Cap the complete response before allocating/retaining every app's data.
+	conn = io.LimitReader(conn, agentMaxResponse)
 	defaultIcon, err := readAgentBlock(conn)
 	if err != nil {
 		return nil, fmt.Errorf("读取 Go-Scrcpy Agent 默认图标：%w", err)

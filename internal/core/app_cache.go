@@ -150,6 +150,19 @@ func writeAppCacheFile(path string, data []byte) error {
 func (s *Service) saveAppCache(key string, apps []domain.AppInfo) error {
 	s.appCacheMu.Lock()
 	defer s.appCacheMu.Unlock()
+	return s.saveAppCacheLocked(key, apps)
+}
+
+func (s *Service) saveAppSnapshot(epoch uint64, key string, apps []domain.AppInfo) error {
+	s.appCacheMu.Lock()
+	defer s.appCacheMu.Unlock()
+	if epoch != s.appCacheEpoch.Load() {
+		return nil
+	}
+	return s.saveAppCacheLocked(key, apps)
+}
+
+func (s *Service) saveAppCacheLocked(key string, apps []domain.AppInfo) error {
 	if len(apps) > 10000 {
 		return errors.New("too many cached apps")
 	}
@@ -191,6 +204,10 @@ func (s *Service) saveAppCache(key string, apps []domain.AppInfo) error {
 // The caller holds s.mu. Replace old metadata, including removed applications,
 // so a device refresh cannot keep an icon from an older app version alive.
 func (s *Service) setAppListing(serial string, listing domain.AppListing) {
+	if s.appListingGeneration == nil {
+		s.appListingGeneration = map[string]uint64{}
+	}
+	s.appListingGeneration[serial]++
 	if s.state.Apps == nil {
 		s.state.Apps = map[string]domain.AppListing{}
 	}

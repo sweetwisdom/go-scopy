@@ -37,7 +37,7 @@ func (u *UI) openAppExportDialog(serial string) {
 				break
 			}
 		}
-		filename := domain.AppExportFilename(info, u.state.AppMetas[serial+"\x00"+packages[0]])
+		filename := domain.AppExportFilename(info, u.appMeta(serial, packages[0]))
 		destination, err = u.appExportPicker("导出应用安装包", filename, true)
 	} else {
 		destination, err = u.appExportPicker(fmt.Sprintf("选择 %d 个应用的导出目录", len(packages)), "", false)

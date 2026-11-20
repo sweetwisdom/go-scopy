@@ -9,7 +9,7 @@ import (
 )
 
 func (u *UI) virtualAppLabel(serial, pkg string) string {
-	if label := u.state.AppMetas[serial+"\x00"+pkg].Label; label != "" {
+	if label := u.appMeta(serial, pkg).Label; label != "" {
 		return label
 	}
 	for _, a := range u.state.Apps[serial].Apps {

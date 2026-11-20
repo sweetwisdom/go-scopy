@@ -75,3 +75,27 @@ func (t Tools) Connect(ctx context.Context, address string) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// DiscoverWireless resolves only a previously observed mDNS service, not every
+// device on the LAN. Connection ports may change after wireless-debug restarts.
+func (t Tools) DiscoverWireless(ctx context.Context, serial string) (string, error) {
+	out, err := t.Run(ctx, "mdns", "services")
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || strings.TrimSuffix(fields[1], ".") != "_adb-tls-connect._tcp" {
+			continue
+		}
+		name := strings.TrimSuffix(fields[0], ".")
+		service := strings.TrimSuffix(serial, ".")
+		if service != name && service != name+"._adb-tls-connect._tcp" && service != name+"_adb-tls-connect._tcp" {
+			continue
+		}
+		if ValidateAddress(fields[2]) == nil {
+			return fields[2], nil
+		}
+	}
+	return "", errors.New("未发现此前的无线调试服务，请检查网络及手机无线调试")
+}

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	"github.com/go-scopy/go-scopy/internal/config"
 	"github.com/go-scopy/go-scopy/internal/core"
@@ -31,6 +32,14 @@ func main() {
 	if file, err := os.OpenFile(filepath.Join(*dir, "startup.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600); err == nil {
 		defer file.Close()
 		log.SetOutput(io.MultiWriter(os.Stderr, file))
+	}
+	// GUI builds may have no stderr console. Keep runtime crash stacks separate
+	// from ordinary logs; SetCrashOutput duplicates the descriptor internally.
+	if file, err := os.OpenFile(filepath.Join(*dir, "crash.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600); err == nil {
+		if err := debug.SetCrashOutput(file, debug.CrashOptions{}); err != nil {
+			log.Printf("configure crash log: %v", err)
+		}
+		file.Close()
 	}
 	if *root == "" {
 		exe, err := os.Executable()

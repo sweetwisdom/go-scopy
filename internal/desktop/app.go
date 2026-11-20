@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-scopy/go-scopy/internal/brand"
 	"github.com/go-scopy/go-scopy/internal/buildinfo"
@@ -28,7 +29,9 @@ func palette(dark bool) colors {
 }
 
 type UI struct {
-	overviewCompact, overviewAdvanced   bool
+	overviewCompact                     bool
+	overviewDetailsSerial               string
+	overviewWidth, overviewHeight       float32
 	scripts                             scriptPanel
 	scriptWeb                           scriptWebState
 	backend                             domain.Backend
@@ -57,6 +60,14 @@ type UI struct {
 	deviceName                          flex.Field
 	deviceAddress, newDeviceName        flex.Field
 	deleteSerial                        string
+	optionsSerial                       string
+	clearAppCache                       bool
+	preview                             screenPreviewState
+	previewRefresh                      previewRefreshState
+	previewInterval                     flex.Field
+	minimized, windowClosed             bool
+	deviceConnection                    deviceConnectionState
+	overviewTools                       []deviceConnectionState
 	application                         *app.Application
 	deviceTab                           string
 	terminals                           map[string]*terminalPanel
@@ -86,6 +97,7 @@ func New(backend domain.Backend) *UI {
 	u.scrcpy.SetText(u.state.Settings.ScrcpyPath)
 	u.output.SetText(u.state.Settings.OutputDir)
 	u.appExportDir.SetText(u.state.Settings.AppExportDir)
+	u.previewInterval.SetText(strconv.Itoa(u.state.Settings.ScreenPreviewIntervalSeconds))
 	u.setTheme(u.state.Settings.Theme)
 	u.loadOptions()
 	u.syncDevices()
@@ -140,6 +152,12 @@ func (u *UI) syncDevices() {
 }
 
 func (u *UI) loadOptions() {
+	if u.state.Preview.Serial != "" && u.state.Preview.Serial != u.selected {
+		if backend, ok := u.backend.(domain.ScreenPreviewBackend); ok {
+			backend.ClearPreview(u.state.Preview.Serial)
+		}
+		u.preview = screenPreviewState{}
+	}
 	u.options = u.state.Settings.OptionsFor(u.selected)
 	u.size.SetText(strconv.Itoa(u.options.MaxSize))
 	u.fps.SetText(strconv.Itoa(u.options.FPS))
@@ -170,10 +188,10 @@ func (u *UI) Config() app.Config {
 			return app.WindowControlsStyle{Foreground: u.c.muted, Hover: u.c.selected, Close: ui.RGB(220, 48, 54), CloseForeground: ui.RGB(255, 255, 255), Minimize: "最小化", Maximize: "最大化", Restore: "还原", CloseName: "关闭"}
 		},
 		TextInput: func(context app.TextInputContext) *app.TextInput {
-			return flex.Fields(&u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output, &u.appExportDir, &u.deviceName, &u.deviceAddress, &u.newDeviceName, &u.vd.width, &u.vd.height, &u.vd.dpi, &u.files.search, &u.files.name, &u.apps.search, &u.scripts.path, &u.scripts.python, &u.scripts.timeout)(context)
+			return flex.Fields(&u.previewInterval, &u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output, &u.appExportDir, &u.deviceName, &u.deviceAddress, &u.newDeviceName, &u.vd.width, &u.vd.height, &u.vd.dpi, &u.vd.search, &u.files.search, &u.files.name, &u.apps.search, &u.scripts.path, &u.scripts.python, &u.scripts.timeout)(context)
 		},
 		OnKey: func(e ui.KeyEvent) ui.EventResult {
-			for _, selectState := range []*flex.SelectState{&u.vd.imeSelect, &u.vd.appSelect} {
+			for _, selectState := range []*flex.SelectState{&u.vd.imeSelect} {
 				if result := selectState.Key(e); result.Handled {
 					return result
 				}
@@ -181,14 +199,24 @@ func (u *UI) Config() app.Config {
 			return ui.EventResult{}
 		},
 		OnScroll: func(e ui.ScrollEvent) ui.EventResult {
-			for _, selectState := range []*flex.SelectState{&u.vd.imeSelect, &u.vd.appSelect} {
+			for _, selectState := range []*flex.SelectState{&u.vd.imeSelect} {
 				if result := selectState.Wheel(e); result.Handled {
 					return result
 				}
 			}
 			return u.view.Wheel(e)
 		}, Paint: u.paint, OnWake: u.onWake,
+		OnMinimize: func(minimized bool) {
+			u.minimized = minimized
+			if minimized {
+				u.previewRefresh.stopTimer()
+				u.previewRefresh.serial = ""
+			}
+			u.wake.Invalidate()
+		},
 		OnClosed: func() {
+			u.windowClosed = true
+			u.previewRefresh.stopTimer()
 			// Programmatic Window.Close bypasses OnCloseRequest. Native views
 			// are already gone here; release only the sessions and timers.
 			u.terminalWeb.page = nil
@@ -214,6 +242,10 @@ func (u *UI) Config() app.Config {
 
 func (u *UI) onWake() {
 	u.state = u.backend.State()
+	if u.apps.cacheGeneration != u.state.AppCacheGeneration {
+		u.apps.bitmaps = appBitmapCache{}
+		u.apps.cacheGeneration = u.state.AppCacheGeneration
+	}
 	u.setTheme(u.state.Settings.Theme)
 	u.syncDevices()
 	u.filePageWake()
@@ -286,19 +318,28 @@ func (u *UI) dialog(kind string) {
 }
 
 func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
-	u.overviewCompact = size.Width < 1180
+	// Rail (76), sidebar (270) and workspace padding (60).
+	u.overviewWidth = max(size.Width-406, 1)
+	u.overviewHeight = size.Height
+	leftWidth, _ := overviewColumnWidths(u.overviewWidth)
+	u.overviewCompact = leftWidth < 500
+	u.deviceConnection = deviceConnectionState{}
+	u.overviewTools = u.overviewTools[:0]
+	u.apps.rows = u.apps.rows[:0]
+	u.vd.rows = u.vd.rows[:0]
 	u.fileWeb.slotSet = false
 	u.terminalWeb.slotSet = false
 	u.scriptWeb.slotSet = false
+	leading, trailing := app.TitlebarInsets()
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, u.c.bg)
 	u.view.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
 		f.Column().Fill().Children(func() {
-			f.Row().FillWidth().Height(44).PadX(22).Gap(12).Items(flex.Center).Background(u.c.rail).Border(1, u.c.border).MovesWindow().Children(func() {
+			f.Row().FillWidth().Height(44).PadSides(0, trailing+22, 0, leading+22).Gap(12).Items(flex.Center).Background(u.c.rail).Border(1, u.c.border).MovesWindow().Children(func() {
 				f.Image(brand.Bitmap()).Size(25, 25)
 				f.Text("Go-Scopy").FontSize(15).Weight(ui.WeightSemibold)
 				f.Text("ANDROID WORKSPACE").FontSize(10).Color(u.c.muted).Grow(1)
-				f.Text("本地连接").FontSize(11).Color(u.c.muted).MarginSides(0, 150, 0, 0)
+				f.Text("本地连接").FontSize(11).Color(u.c.muted)
 			})
 			f.Row().FillWidth().Height(max(size.Height-72, 0)).Children(func() {
 				u.rail(f)
@@ -317,14 +358,18 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 				f.Text(u.stats).FontSize(10).Color(u.c.muted)
 			})
 		})
+		u.deviceDialogs(f)
 	})
-	if u.fileWeb.slotSet && u.fileWeb.page != nil {
+	u.syncPreviewRefresh(time.Now())
+	u.paintDeviceConnectionTooltip(canvas, bounds)
+	u.fetchVisibleAppMetas(bounds)
+	if !u.deviceDialogOpen() && u.fileWeb.slotSet && u.fileWeb.page != nil {
 		canvas.NativeView(u.fileWeb.page.ID(), u.fileWeb.slot.Rect())
 	}
-	if u.terminalWeb.slotSet && u.terminalWeb.page != nil {
+	if !u.deviceDialogOpen() && u.terminalWeb.slotSet && u.terminalWeb.page != nil {
 		canvas.NativeView(u.terminalWeb.page.ID(), u.terminalWeb.slot.Rect())
 	}
-	if u.scriptWeb.slotSet && u.scriptWeb.page != nil {
+	if !u.deviceDialogOpen() && u.scriptWeb.slotSet && u.scriptWeb.page != nil {
 		canvas.NativeView(u.scriptWeb.page.ID(), u.scriptWeb.slot.Rect())
 	}
 	u.sendScriptContext()
@@ -476,17 +521,30 @@ func (u *UI) deviceRow(f *flex.Frame, d domain.Device) {
 	if d.Serial == u.selected && !u.connecting {
 		bg = u.c.selected
 	}
-	if f.Column().FillWidth().Pad(13).Gap(8).Radius(10).Background(bg).HoverBackground(u.c.selected).Hit(present.id, d.Name()).Children(func() {
+	if f.Column().FillWidth().Pad(11).Gap(7).Radius(10).Background(bg).HoverBackground(u.c.selected).Hit(present.id, d.Name()).Children(func() {
 		f.Row().FillWidth().Gap(10).Items(flex.Center).Children(func() {
 			f.Icon(iconPhone).Size(20, 20).Color(u.c.blue)
 			f.Text(d.Name()).FontSize(14).Weight(ui.WeightMedium).Grow(1).Ellipsis()
-		})
-		f.Text(d.Serial).FontSize(10).Color(u.c.muted).Ellipsis()
-		f.Row().Gap(6).Items(flex.Center).Children(func() {
-			u.dot(f, d.State == "device")
-			f.Text(present.rowStatus).FontSize(10).Color(u.c.muted)
 			if _, ok := u.state.Sessions[domain.SessionID(d.Serial, domain.SessionMirror)]; ok {
 				f.Text("投屏中").FontSize(10).Color(u.c.blue)
+			}
+		})
+		f.Text(d.Serial).FontSize(10).Color(u.c.muted).Ellipsis()
+		f.Row().FillWidth().Gap(6).Items(flex.Center).Children(func() {
+			u.dot(f, d.State == "device")
+			f.Text(present.rowStatus).FontSize(10).Color(u.c.muted).Width(0).Grow(1).Ellipsis()
+			if f.Row().Width(40).Shrink(0).Gap(3).Items(flex.Center).Hit(u.id("edit/"+d.Serial), "编辑设备 · "+d.Name()).Children(func() {
+				f.Icon(iconEdit).Size(12, 12).Color(u.c.muted)
+				f.Text("编辑").FontSize(10).Color(u.c.muted)
+			}).Clicked() {
+				u.openDeviceEditor(d)
+			}
+			if f.Row().Width(40).Shrink(0).Gap(3).Items(flex.Center).Hit(u.id("delete/"+d.Serial), "删除记录 · "+d.Name()).Children(func() {
+				f.Icon(iconDelete).Size(12, 12).Color(u.c.muted)
+				f.Text("删除").FontSize(10).Color(u.c.muted)
+			}).Clicked() {
+				u.deleteSerial = d.Serial
+				u.wake.Invalidate()
 			}
 		})
 	}).Clicked() {
@@ -559,7 +617,11 @@ func (u *UI) content(f *flex.Frame) {
 			}
 		}
 	}
-	f.ScrollArea(u.id("content-scroll")).Grow(1).FillHeight().Pad(30).Gap(20).Children(func() {
+	gap := float32(20)
+	if u.section == "devices" && !u.connecting {
+		gap = 12
+	}
+	f.ScrollArea(u.id("content-scroll")).Grow(1).FillHeight().Pad(30).Gap(gap).Children(func() {
 		if u.closing {
 			u.card(f, func() {
 				f.Text("确认退出？").FontSize(18).Weight(ui.WeightSemibold)
@@ -588,7 +650,6 @@ func (u *UI) content(f *flex.Frame) {
 		if u.notice != "" {
 			f.Paragraph(u.notice, 12).FillWidth().Pad(12).Background(u.c.selected).Radius(8).FontSize(12)
 		}
-		u.virtualDisplayCard(f)
 		if u.section == "settings" {
 			u.settings(f)
 			return
@@ -643,167 +704,6 @@ func (u *UI) empty(f *flex.Frame) {
 		})
 	})
 	u.small(f, "提示：未授权设备会出现在左侧列表中；无需安装额外的手机应用。")
-}
-
-func (u *UI) deviceSettings(f *flex.Frame, d domain.Device) {
-	active, hasSession := u.state.Sessions[domain.SessionID(d.Serial, domain.SessionMirror)]
-	ready := d.State == "device"
-	u.card(f, func() {
-		f.Row().FillWidth().Gap(18).Items(flex.Center).Children(func() {
-			f.Stack().Size(60, 68).Radius(13).Background(u.c.selected).Center().Children(func() { f.Icon(iconPhone).Size(32, 32).Color(u.c.blue) })
-			f.Column().Grow(1).Gap(8).Children(func() {
-				f.Text(d.Name()).FillWidth().Ellipsis().FontSize(18).Weight(ui.WeightSemibold)
-				if d.Alias != "" && d.Model != "" {
-					f.Text(d.Model).FontSize(11).Color(u.c.muted)
-				}
-				f.Text(d.Serial).FontSize(12).Color(u.c.muted).Ellipsis()
-				f.Row().Gap(7).Items(flex.Center).Children(func() {
-					u.dot(f, ready)
-					f.Text(u.presentation[d.Serial].detailStatus).FontSize(11).Color(u.c.muted)
-				})
-			})
-			if f.Button(u.id("rename-device"), "重命名").Ghost().Small().Clicked() {
-				u.renameSerial = d.Serial
-				u.deviceName.SetText(d.Alias)
-				u.deviceAddress.SetText(d.Serial)
-				u.wake.Invalidate()
-			}
-			if hasSession {
-				label := "投屏中"
-				if active.Recording != "" {
-					label = "正在录屏"
-				}
-				if active.Status == "starting" {
-					label = "正在启动"
-				}
-				if active.Status == "stopping" {
-					label = "正在停止"
-				}
-				f.Text(label).FontSize(12).Color(u.c.blue)
-			}
-		})
-		if u.renameSerial == d.Serial {
-			if d.Connection == "Wi-Fi" {
-				f.Field(&u.deviceAddress, u.id("edit-device-address"), "连接地址", "IP:端口").FillWidth().Height(38)
-			}
-			f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
-				f.Field(&u.deviceName, u.id("device-name"), "设备备注", "例如：我的小米手机").Grow(1).Height(38)
-				if f.Button(u.id("save-device-name"), "保存名称").Small().Clicked() {
-					u.saveDeviceRecord(d)
-				}
-				if f.Button(u.id("cancel-device-name"), "取消重命名").Ghost().Small().Clicked() {
-					u.renameSerial = ""
-					u.wake.Invalidate()
-				}
-			})
-			u.small(f, "备注仅保存在本机，最多 40 个字符；留空可恢复原名称。")
-			if d.Connection == "Wi-Fi" {
-				u.small(f, "可修改上方连接地址。修改仅保存记录，已有连接需自行断开。")
-			}
-		}
-		if !ready {
-			if d.State == "unauthorized" {
-				u.small(f, "请解锁手机并允许 USB 调试。如果授权弹窗未出现，请重新插拔数据线。")
-			} else {
-				u.small(f, "设备不可用。请检查数据线或无线网络，重新连接后再试。")
-			}
-		}
-		f.Row().Gap(10).Children(func() {
-			if f.Button(u.id("start"), "开始投屏").Height(38).Disabled(!ready || hasSession || u.state.ScrcpyVersion == "").Clicked() {
-				u.start(false)
-			}
-			if f.Button(u.id("record"), "投屏并录屏").Height(38).Outline().Disabled(!ready || hasSession || u.state.ScrcpyVersion == "").Clicked() {
-				u.start(true)
-			}
-			if f.Button(u.id("stop"), "停止会话").Height(38).Outline().Disabled(!hasSession || active.Status != "running").Clicked() {
-				u.backend.Stop(domain.SessionID(u.selected, domain.SessionMirror))
-			}
-		})
-		if active.Recording != "" {
-			u.small(f, "录屏文件："+active.Recording)
-		}
-	})
-	u.card(f, func() {
-		f.Row().FillWidth().Items(flex.Center).Children(func() {
-			f.Text("投屏参数").FontSize(16).Weight(ui.WeightSemibold).Grow(1)
-			f.Text("下一次启动时生效").FontSize(11).Color(u.c.muted)
-		})
-		f.Row().FillWidth().Gap(14).Children(func() {
-			u.optionField(f, "分辨率上限 (px)", &u.size, "size")
-			u.optionField(f, "帧率 (fps)", &u.fps, "fps")
-			u.optionField(f, "码率 (Mbps)", &u.bitrate, "bitrate")
-		})
-		f.Row().FillWidth().Gap(24).Children(func() {
-			u.toggle(f, "audio", "传输音频", &u.options.Audio)
-			u.toggle(f, "screen-off", "投屏时熄屏", &u.options.ScreenOff)
-		})
-		f.Row().FillWidth().Gap(24).Children(func() {
-			u.toggle(f, "awake", "保持唤醒", &u.options.StayAwake)
-			u.toggle(f, "top", "窗口置顶", &u.options.AlwaysOnTop)
-		})
-		f.Row().Gap(10).Children(func() {
-			if f.Button(u.id("save-options"), "保存此设备参数").Outline().Small().Clicked() {
-				u.saveOptions(false)
-			}
-			if f.Button(u.id("default-options"), "设为全局默认").Ghost().Small().Clicked() {
-				u.saveOptions(true)
-			}
-		})
-	})
-	u.card(f, func() {
-		f.Text("常用操作").FontSize(16).Weight(ui.WeightSemibold)
-		f.Row().FillWidth().Gap(10).Children(func() {
-			if f.Button(u.id("capture"), "保存截图").Outline().Disabled(!ready).Clicked() {
-				u.backend.Capture(u.selected)
-			}
-			if f.Button(u.id("install"), "安装 APK").Outline().Disabled(!ready).Clicked() {
-				u.dialog("apk")
-			}
-			if d.Connection != "USB" {
-				if f.Button(u.id("reconnect-device"), "连接设备").Outline().Disabled(ready || hasSession).Clicked() {
-					u.backend.Connect(d.Serial)
-				}
-				if f.Button(u.id("disconnect"), "断开连接").Outline().Disabled(hasSession).Clicked() {
-					u.backend.Disconnect(u.selected)
-				}
-			}
-		})
-		if d.Connection == "Wi-Fi" {
-			f.Row().Gap(10).Children(func() {
-				if !u.state.Settings.SavedWireless[d.Serial] {
-					if f.Button(u.id("remember-device"), "保存到设备列表").Ghost().Small().Clicked() {
-						u.persistDevice(d.Serial, d.Serial, d.Alias, true)
-					}
-				} else if f.Button(u.id("forget-device"), "删除记录").Ghost().Small().Clicked() {
-					u.deleteSerial = d.Serial
-					u.wake.Invalidate()
-				}
-			})
-			if u.deleteSerial == d.Serial {
-				u.small(f, "删除本机保存的地址、备注及设备参数？已连接设备仍会由 ADB 自动发现，可先断开连接。")
-				f.Row().Gap(10).Children(func() {
-					if f.Button(u.id("confirm-forget-device"), "确认删除记录").Outline().Small().Clicked() {
-						u.backend.Save(config.ForgetDevice(u.state.Settings, d.Serial))
-						u.deleteSerial = ""
-						u.wake.Invalidate()
-					}
-					if f.Button(u.id("cancel-forget-device"), "保留记录").Ghost().Small().Clicked() {
-						u.deleteSerial = ""
-						u.wake.Invalidate()
-					}
-				})
-			}
-		}
-		u.small(f, "截图和录像保存在设置中的目录，执行结果可在任务中心查看。")
-	})
-	if len(u.state.Tasks) > 0 {
-		t := u.state.Tasks[0]
-		text := "最近任务：" + t.Title + " · " + taskLabel(t.Status)
-		if t.Detail != "" {
-			text += " · " + t.Detail
-		}
-		u.small(f, text)
-	}
 }
 
 func (u *UI) saveDeviceRecord(d domain.Device) {
@@ -870,6 +770,7 @@ func (u *UI) saveOptions(global bool) {
 		s.Devices[u.selected] = o
 	}
 	u.backend.Save(s)
+	u.optionsSerial = ""
 	u.notice = "参数已提交保存"
 	u.wake.Invalidate()
 }
@@ -1042,6 +943,8 @@ func (u *UI) settings(f *flex.Frame) {
 		})
 		u.small(f, "文件名包含时间与设备序列号。录屏开始前选择参数，停止会话后自动保存。")
 	})
+	u.previewRefreshSettings(f)
+	u.appCacheSettings(f)
 	u.appExportSettings(f)
 }
 

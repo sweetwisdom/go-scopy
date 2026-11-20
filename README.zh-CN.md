@@ -49,4 +49,12 @@
 
 ## Python automation / Python 脚本
 
-支持按设备运行本地 Python 脚本、实时日志、超时和停止。UI 自动化使用 uiautomator2，独立运行于 PATH 默认的 Python 环境，也可手动指定解释器。发行包不携带 Python 解释器或第三方依赖。准备与使用见 [Python 脚本文档](docs/python-scripting.md)。
+支持按设备运行本地 Python 脚本、实时日志、超时和停止。UI 自动化使用 uiautomator2，独立运行于 PATH 默认的 Python 环境，也可手动指定解释器。发行包不携带 Python 解释器或第三方依赖。准备与使用见 [Python 脚本文档](docs/python-script-development.md)。
+
+## 安装与屏幕预览（v0.1.10）
+
+- **Windows x64**：下载 ZIP，解压运行 `Go-Scopy.exe`。
+- **macOS 13.0+**：选择 Intel / Apple Silicon 对应的 DMG，将 `Go-Scopy.app` 拖到 Applications。仅提供 ad-hoc 签名，未经 Apple 公证；也保留 ZIP。
+- **Linux x64 / ARM64**：在 Ubuntu 24.04 或兼容 Debian 环境使用 `sudo apt install ./Go-Scopy-0.1.10-linux-amd64.deb`（ARM64 改为 `arm64`），从应用菜单或 `go-scopy` 启动。卸载 `sudo apt remove go-scopy` 不删除个人配置。其他发行版可使用 tar.gz 并自行安装图形桌面、X11/XCB、xkbcommon、Vulkan、libudev 等依赖。
+- 设备连接、重连和进入设备概况时立即刷新屏幕；设置 → 常规 → 设备屏幕预览可设置刷新间隔，默认 5 秒，1–300 秒可调，0 关闭定时刷新。离开概况页、最小化时暂停；截图仅保存在内存中，手动保存才生成文件。
+- 应用名称和图标按包名全局复用，设置中可清理；Windows 默认缓存位于 `%APPDATA%\Go-Scopy\cache\apps-v2`，运行时异常记录在同一配置根目录的 `startup.log` 和 `crash.log`。

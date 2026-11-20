@@ -33,7 +33,6 @@ func TestWirelessShortcutFollowsVirtualDisplayAndTargetsDevice(t *testing.T) {
 		if f.action != "tcp" || f.serial != "USB-DEMO-01" {
 			t.Fatal("wireless targeted another device")
 		}
-		click(t, s, "设备设置")
 		count := 0
 		for _, hit := range s.Snapshot().Hits {
 			if hit.Label == "切换无线" {

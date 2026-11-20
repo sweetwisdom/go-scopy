@@ -29,7 +29,7 @@ func TestAppCacheLiveDevice(t *testing.T) {
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		s.mu.Lock()
-		pending := s.inflight["apps:"+serial]
+		pending := len(s.inflight) > 0
 		s.mu.Unlock()
 		if !pending {
 			break
@@ -52,7 +52,10 @@ func TestAppCacheLiveDevice(t *testing.T) {
 		if a.Package != listing.Apps[i].Package || a.VersionCode != listing.Apps[i].VersionCode {
 			t.Fatal("cached metadata changed")
 		}
-		if len(a.IconPNG) > 0 {
+		if len(a.IconPNG) != 0 {
+			t.Fatal("device snapshot retained global icon pixels")
+		}
+		if meta, err := s.loadGlobalAppMeta(appPackageKey(a.Package), a.Package); err == nil && len(meta.IconPNG) > 0 {
 			icons++
 		}
 	}

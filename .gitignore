@@ -16,3 +16,7 @@ __pycache__/
 # Keep local Markdown documentation out of Git
 /docs/*.md
 !/docs/python-script-development.md
+
+# Local visual prototypes and native headless screenshots
+/output/
+/internal/desktop/artifacts/

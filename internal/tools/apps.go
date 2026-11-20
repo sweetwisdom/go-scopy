@@ -17,24 +17,40 @@ import (
 )
 
 var (
-	packageLine = regexp.MustCompile(`^package:(.+)=([^=]+)$`)
+	packageLine = regexp.MustCompile(`^package:(.+)=([^=\s]+)(?: versionCode:(\d+))?$`)
 	pkgBlock    = regexp.MustCompile(`^  Package \[([^\]]+)\]`)
 	versionName = regexp.MustCompile(`^\s*versionName=(.*)$`)
 	versionCode = regexp.MustCompile(`^\s*versionCode=(\d+)`)
 )
 
-// ListApps reads the installed packages: paths and system/user split from pm,
-// versions from one dumpsys pass, sizes from batched du.
+// ListApps retains the complete Agent read for callers that explicitly need it.
+// Interactive package pages use ListAppPackages so icons never delay the list.
 func (t Tools) ListApps(ctx context.Context, serial string) ([]AppInfo, error) {
 	if apps, err := t.listAppsAgent(ctx, serial); err == nil && len(apps) > 0 {
 		return apps, nil
 	}
+	return t.ListAppPackages(ctx, serial)
+}
+
+// ListAppMetadata exposes Agent failures instead of converting them to a
+// label-less package list that callers could incorrectly cache as complete.
+func (t Tools) ListAppMetadata(ctx context.Context, serial string) ([]AppInfo, error) {
+	return t.listAppsAgent(ctx, serial)
+}
+
+// ListAppPackages only reads installation identities, paths and user/system flags.
+func (t Tools) ListAppPackages(ctx context.Context, serial string) ([]AppInfo, error) {
 	// Keep initial listing responsive. Expensive package dumps and a du call
 	// per APK directory are deliberately deferred from the list operation.
-	all, err := t.packagePaths(ctx, serial, "pm list packages -f")
+	out, err := t.Device(ctx, serial, "shell", "pm list packages -f --show-versioncode")
+	if err != nil || (len(parseAppPackages(string(out))) == 0 && strings.TrimSpace(string(out)) != "") {
+		// Some older package managers print an unsupported-option error but exit 0.
+		out, err = t.Device(ctx, serial, "shell", "pm list packages -f")
+	}
 	if err != nil {
 		return nil, err
 	}
+	all := parseAppPackages(string(out))
 	third := map[string]bool{}
 	if out, err := t.Device(ctx, serial, "shell", "pm list packages -3"); err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
@@ -44,26 +60,22 @@ func (t Tools) ListApps(ctx context.Context, serial string) ([]AppInfo, error) {
 		}
 	}
 	apps := make([]AppInfo, 0, len(all))
-	for pkg, apkPath := range all {
-		apps = append(apps, AppInfo{Package: pkg, APKPath: apkPath, System: !third[pkg]})
+	for _, a := range all {
+		a.System = !third[a.Package]
+		apps = append(apps, a)
 	}
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Package < apps[j].Package })
 	return apps, nil
 }
 
-func (t Tools) packagePaths(ctx context.Context, serial, command string) (map[string]string, error) {
-	out, err := t.Device(ctx, serial, "shell", command)
-	if err != nil {
-		return nil, err
-	}
-	paths := map[string]string{}
-	for _, line := range strings.Split(string(out), "\n") {
-		m := packageLine.FindStringSubmatch(strings.TrimRight(line, "\r"))
-		if m != nil {
-			paths[m[2]] = m[1]
+func parseAppPackages(text string) []AppInfo {
+	var apps []AppInfo
+	for _, line := range strings.Split(text, "\n") {
+		if m := packageLine.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+			apps = append(apps, AppInfo{Package: m[2], APKPath: m[1], VersionCode: m[3]})
 		}
 	}
-	return paths, nil
+	return apps
 }
 
 type versionPair struct{ name, code string }

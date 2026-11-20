@@ -13,7 +13,7 @@ import (
 // devicePageKeys are the device workspace's tabs, in display order.
 var devicePageKeys = []struct{ key, label string }{
 	{"overview", "设备概况"}, {"files", "文件管理"}, {"packages", "应用包"},
-	{"terminal", "设备终端"}, {"settings", "设备设置"},
+	{"terminal", "设备终端"},
 }
 
 // device hosts the management tabs of one device.
@@ -22,8 +22,6 @@ func (u *UI) device(f *flex.Frame, d domain.Device) {
 	u.deviceVirtualSessions(f, d.Serial)
 	u.deviceTabs(f, d)
 	switch u.deviceTab {
-	case "overview":
-		u.deviceOverview(f, d)
 	case "files":
 		u.deviceFiles(f, d)
 	case "packages":
@@ -31,24 +29,60 @@ func (u *UI) device(f *flex.Frame, d domain.Device) {
 	case "terminal":
 		u.deviceTerminalPage(f, d)
 	default:
-		u.deviceSettings(f, d)
+		u.deviceOverview(f, d)
 	}
 }
 
 // deviceHeading separates device identity from session actions to keep the
 // workspace header calm and easy to scan.
 func (u *UI) deviceHeading(f *flex.Frame, d domain.Device) {
-	f.Column().FillWidth().Gap(8).MarginSides(0, 0, 14, 0).Children(func() {
-		f.Text("工作台 / 设备").FontSize(11).Color(u.c.muted)
-		f.Text(d.Name()).FillWidth().Ellipsis().FontSize(26).Weight(ui.WeightSemibold)
-		u.small(f, "管理这台设备的投屏会话与常用操作。")
+	info := u.state.PhoneInfos[d.Serial]
+	identity := func() {
+		f.Row().Width(0).Grow(1).Gap(12).Items(flex.Center).Children(func() {
+			f.Column().Size(42, 48).Shrink(0).Center().Radius(10).Background(u.c.selected).Children(func() {
+				f.Icon(iconPhone).Size(23, 23).Color(u.c.blue)
+			})
+			f.Column().Width(0).Grow(1).Gap(6).Children(func() {
+				nameWidth := max(u.overviewWidth-210, 1)
+				if u.overviewWidth >= 800 {
+					nameWidth = max(u.overviewWidth-550, 1)
+				}
+				f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
+					f.Text(d.Name()).MaxWidth(nameWidth).Ellipsis().FontSize(24).Weight(ui.WeightSemibold)
+					u.deviceConnectionButton(f, d)
+					status, color := "在线", u.c.green
+					if d.State != "device" {
+						status, color = "离线", u.c.muted
+					}
+					if d.State == "unauthorized" {
+						status = "未授权"
+					}
+					f.Text(status + " · " + d.Connection).FontSize(11).Color(color)
+				})
+				subtitle := strings.TrimSpace(info.Brand + " " + info.Model)
+				if subtitle == "" {
+					subtitle = d.Model
+				}
+				if info.AndroidVersion != "" {
+					subtitle += " · Android " + info.AndroidVersion
+				}
+				f.Text(knownInfo(subtitle)).FillWidth().Ellipsis().FontSize(11).Color(u.c.muted)
+			})
+		})
+	}
+	actions := func() {
 		ready := d.State == "device"
-		f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
+		f.Row().Gap(8).Items(flex.Center).Children(func() {
 			if f.Button(u.id("device-mirror"), "投屏").Small().Disabled(!ready).Clicked() {
 				u.start(false)
 			}
 			if f.Button(u.id("open-virtual"), "虚拟屏幕").Small().Outline().Disabled(!ready).Clicked() {
 				u.openVirtualDialog(d.Serial)
+			}
+			if f.Button(u.id("open-projection-options"), "投屏参数").Small().Outline().Clicked() {
+				u.optionsSerial = d.Serial
+				u.loadOptions()
+				u.wake.Invalidate()
 			}
 			if d.Connection == "USB" {
 				if f.Button(u.id("tcp"), "切换无线").Small().Outline().Disabled(!ready).Clicked() {
@@ -56,13 +90,27 @@ func (u *UI) deviceHeading(f *flex.Frame, d domain.Device) {
 				}
 			}
 		})
+	}
+	f.Column().FillWidth().Gap(14).Children(func() {
+		if u.overviewHeight >= 780 {
+			f.Text("我的设备 / " + d.Name()).FillWidth().Ellipsis().FontSize(11).Color(u.c.muted)
+		}
+		if u.overviewWidth >= 800 {
+			f.Row().FillWidth().Gap(20).Items(flex.Center).Children(func() { identity(); actions() })
+		} else {
+			f.Row().FillWidth().Children(identity)
+			actions()
+		}
 	})
 }
 
 func (u *UI) deviceTabs(f *flex.Frame, d domain.Device) {
-	f.Row().FillWidth().Height(42).Gap(4).Items(flex.Center).MarginSides(0, 0, 14, 0).Children(func() {
+	f.Row().FillWidth().Height(40).Gap(4).Items(flex.Center).MarginSides(0, 0, 4, 0).Children(func() {
 		for _, tab := range devicePageKeys {
 			if u.deviceTabButton(f, tab.key, tab.label) {
+				if tab.key == "overview" {
+					u.previewRefresh.serial = ""
+				}
 				u.deviceTab = tab.key
 				switch tab.key {
 				case "overview":
@@ -102,192 +150,6 @@ func (u *UI) deviceTabButton(f *flex.Frame, key, label string) bool {
 		f.Stack().FillWidth().Height(2).Radius(1).Background(underline)
 	})
 	return b.Clicked()
-}
-
-// deviceOverview keeps acquisition state separate from optional device fields.
-func (u *UI) deviceOverview(f *flex.Frame, d domain.Device) {
-	info, exists := u.state.PhoneInfos[d.Serial]
-	ready := d.State == "device"
-	if !exists {
-		info.BatteryLevel, info.MemAvailableKB = -1, -1
-		if ready {
-			u.backend.FetchPhoneInfo(d.Serial)
-		}
-	}
-	f.Row().FillWidth().Height(36).Gap(10).Items(flex.Center).Children(func() {
-		f.Icon(iconPhone).Size(18, 18).Color(u.c.blue)
-		f.Text("设备概览").FontSize(15).Weight(ui.WeightSemibold)
-		status := "尚未读取"
-		switch {
-		case info.Loading || (!exists && ready):
-			status = "正在读取设备信息…"
-		case !ready:
-			status = "设备未连接"
-		case info.Error != "":
-			status = "读取失败，可重试"
-		case len(info.Warnings) > 0:
-			status = fmt.Sprintf("已读取 · %d 项提示", len(info.Warnings))
-		case !info.UpdatedAt.IsZero():
-			status = "更新于 " + info.UpdatedAt.Format("15:04:05")
-		case exists:
-			status = "已读取"
-		}
-		f.Text(status).FontSize(11).Color(u.c.muted).Grow(1).Ellipsis()
-		if f.Button(u.id("refresh-overview"), "刷新").Small().Outline().Disabled(!ready || info.Loading).Clicked() {
-			u.backend.FetchPhoneInfo(d.Serial)
-		}
-	})
-	if info.Error != "" {
-		u.small(f, "读取设备信息失败："+info.Error)
-	} else if len(info.Warnings) > 0 {
-		u.small(f, "部分信息未能读取，其余结果正常显示；展开详细信息可查看原因。")
-	}
-	if u.overviewCompact {
-		u.overviewBasic(f, info)
-		f.Row().FillWidth().Gap(14).Children(func() {
-			f.Column().Width(0).Grow(1).Children(func() { u.overviewBattery(f, info) })
-			f.Column().Width(0).Grow(1).Children(func() { u.overviewResources(f, info) })
-		})
-	} else {
-		f.Row().FillWidth().Gap(16).Children(func() {
-			f.Column().Width(0).Grow(1).Children(func() { u.overviewBasic(f, info) })
-			f.Column().Width(280).Gap(14).Children(func() {
-				u.overviewBattery(f, info)
-				u.overviewResources(f, info)
-			})
-		})
-	}
-	u.overviewDetails(f, info, d.Serial)
-
-	u.card(f, func() {
-		f.Text("快捷操作").FontSize(16).Weight(ui.WeightSemibold)
-		u.small(f, "通过 ADB 展开/收起状态栏、打开常用系统设置；部分机型对状态栏命令支持可能不同。")
-		ready := d.State == "device"
-		f.Row().FillWidth().Gap(10).Items(flex.Center).Children(func() {
-			f.Text("状态栏").FontSize(12).Color(u.c.muted).Grow(1)
-			for _, a := range []struct{ action, label string }{
-				{"expand-notifications", "展开通知"}, {"expand-settings", "快捷设置"}, {"collapse", "收起"},
-			} {
-				if f.Button(u.id("qa-"+a.action), a.label).Small().Outline().Disabled(!ready).Clicked() {
-					u.backend.QuickAction(d.Serial, a.action)
-				}
-			}
-		})
-		f.Row().FillWidth().Gap(10).Items(flex.Center).Children(func() {
-			f.Text("常用设置").FontSize(12).Color(u.c.muted).Grow(1)
-			for _, a := range []struct{ action, label string }{
-				{"settings", "设备设置"}, {"wifi", "WLAN"}, {"developer", "开发者选项"},
-			} {
-				if f.Button(u.id("qa-"+a.action), a.label).Small().Outline().Disabled(!ready).Clicked() {
-					u.backend.QuickAction(d.Serial, a.action)
-				}
-			}
-		})
-	})
-}
-
-// overviewBasic uses paired rows rather than large, sparse summary tiles.
-func (u *UI) overviewBasic(f *flex.Frame, i domain.PhoneInfo) {
-	pairs := [][4]string{
-		{"品牌", i.Brand, "型号", i.Model},
-		{"制造商", i.Manufacturer, "代号", i.DeviceCode},
-		{"Android", joinInfo(i.AndroidVersion, apiSuffix(i.APILevel)), "安全补丁", i.SecurityPatch},
-		{"CPU 架构", i.CPUABI, "硬件平台", i.Hardware},
-		{"分辨率", displayInfo(i.PhysicalSize, i.OverrideSize), "DPI", displayInfo(i.PhysicalDPI, i.OverrideDPI)},
-		{"IP 地址", i.IPAddress, "Wi-Fi", i.WiFiSSID},
-		{"序列号", i.SerialNumber, "A/B 槽", i.Slot},
-		{"BL 锁", i.BootloaderState, "验证启动", i.VerifiedBoot},
-		{"闪存", i.StorageType, "开机时长", uptimeText(i.UptimeSeconds)},
-	}
-	f.Column().FillWidth().Gap(4).Pad(16).Radius(12).Background(u.c.card).Border(1, u.c.border).Children(func() {
-		u.overviewTitle(f, "基本信息")
-		for _, row := range pairs {
-			f.Row().FillWidth().Gap(16).Children(func() {
-				for n := 0; n < 4; n += 2 {
-					f.Row().Width(0).Grow(1).Height(30).Gap(8).Items(flex.Center).Children(func() {
-						f.Text(row[n]).Width(60).FontSize(11).Color(u.c.muted)
-						f.Text(knownInfo(row[n+1])).Width(0).Grow(1).FontSize(12).Ellipsis()
-					})
-				}
-			})
-		}
-		u.overviewLine(f, "Root 检测", i.RootStatus)
-		u.overviewLine(f, "内核", i.KernelVersion)
-	})
-}
-
-func (u *UI) overviewTitle(f *flex.Frame, title string) {
-	f.Row().FillWidth().Height(30).Gap(8).Items(flex.Center).Children(func() {
-		f.Icon(iconPhone).Size(15, 15).Color(u.c.blue)
-		f.Text(title).FontSize(14).Weight(ui.WeightSemibold)
-	})
-}
-
-func (u *UI) overviewLine(f *flex.Frame, label, value string) {
-	f.Row().FillWidth().Height(28).Gap(8).Items(flex.Center).Children(func() {
-		f.Text(label).Width(72).FontSize(11).Color(u.c.muted)
-		f.Text(knownInfo(value)).Width(0).Grow(1).FontSize(12).Ellipsis()
-	})
-}
-
-func (u *UI) overviewBattery(f *flex.Frame, i domain.PhoneInfo) {
-	f.Column().FillWidth().Gap(3).Pad(16).Radius(12).Background(u.c.card).Border(1, u.c.border).Children(func() {
-		u.overviewTitle(f, "电池信息")
-		f.Row().FillWidth().Gap(10).Items(flex.Center).Children(func() {
-			f.Text(batteryText(i.BatteryLevel)).FontSize(27).Weight(ui.WeightSemibold).Color(u.c.blue)
-			f.Text(knownInfo(i.BatteryStatus)).FontSize(12).Color(u.c.muted)
-		})
-		u.overviewLine(f, "温度", scaledInfo(i.BatteryTemperatureTenthsC, 10, "°C"))
-		u.overviewLine(f, "电压", scaledInfo(i.BatteryVoltageMV, 1000, " V"))
-		u.overviewLine(f, "健康状态", i.BatteryHealth)
-		u.overviewLine(f, "剩余电荷", scaledInfo(i.BatteryChargeCounterUAH, 1000, " mAh"))
-		u.overviewLine(f, "瞬时电流", scaledInfo(i.BatteryCurrentUA, 1000, " mA"))
-		u.small(f, "数值由设备报告；模拟器可能返回占位值。")
-	})
-}
-
-func (u *UI) overviewResources(f *flex.Frame, i domain.PhoneInfo) {
-	f.Column().FillWidth().Gap(8).Pad(16).Radius(12).Background(u.c.card).Border(1, u.c.border).Children(func() {
-		u.overviewTitle(f, "存储与内存")
-		f.Text("内存 · 已用 / 总量").FontSize(11).Color(u.c.muted)
-		f.Text(memoryText(i.MemTotalKB, i.MemAvailableKB)).FillWidth().Ellipsis().FontSize(12)
-		u.meter(f, memoryRatio(i.MemTotalKB, i.MemAvailableKB))
-		f.Text("数据分区 /data · 已用 / 总量").FontSize(11).Color(u.c.muted)
-		f.Text(storageText(i.StorageTotalBytes, i.StorageUsedBytes)).FillWidth().Ellipsis().FontSize(12)
-		u.meter(f, storageRatio(i.StorageTotalBytes, i.StorageUsedBytes))
-	})
-}
-
-func (u *UI) overviewDetails(f *flex.Frame, i domain.PhoneInfo, serial string) {
-	f.Column().FillWidth().Gap(8).Pad(16).Radius(12).Background(u.c.card).Border(1, u.c.border).Children(func() {
-		label := "展开详细信息"
-		if u.overviewAdvanced {
-			label = "收起详细信息"
-		}
-		if f.Button(u.id("overview-details"), label).Small().Ghost().Clicked() {
-			u.overviewAdvanced = !u.overviewAdvanced
-		}
-		if !u.overviewAdvanced {
-			return
-		}
-		for _, row := range [][2]string{
-			{"连接标识", serial}, {"产品名称", i.Product}, {"主板", i.Board}, {"ABI 列表", i.CPUABIs},
-			{"物理分辨率", i.PhysicalSize}, {"覆盖分辨率", i.OverrideSize},
-			{"物理 DPI", i.PhysicalDPI}, {"覆盖 DPI", i.OverrideDPI},
-			{"CPU 最小频率", scaledInfo(i.CPUFreqMinKHz, 1000, " MHz")},
-			{"CPU 最大频率", scaledInfo(i.CPUFreqMaxKHz, 1000, " MHz")},
-			{"CPU 当前频率", scaledInfo(i.CPUFreqCurKHz, 1000, " MHz")},
-			{"构建 ID", i.BuildID}, {"构建版本", i.BuildDisplay}, {"构建指纹", i.Fingerprint},
-			{"基带版本", i.Baseband}, {"Root 检测依据", i.RootStatus}, {"内核版本", i.KernelVersion},
-		} {
-			f.Text(row[0]).FontSize(11).Color(u.c.muted)
-			f.Paragraph(knownInfo(row[1]), 12).FillWidth().FontSize(12)
-		}
-		u.small(f, "屏幕数值中的箭头表示物理值 → 覆盖值。剩余电荷不是设计容量；电流来自设备 sysfs，正负方向由设备驱动定义。Root 检测不执行 su 或任何提权操作。")
-		for _, warning := range i.Warnings {
-			u.small(f, warning)
-		}
-	})
 }
 
 func knownInfo(value string) string {

@@ -49,7 +49,7 @@ func TestOverviewLayoutsAndDataAtWindowSizes(t *testing.T) {
 				for _, text := range s.Snapshot().Texts {
 					texts += text.Value + "\n"
 				}
-				for _, value := range []string{"基本信息", "品牌", "Android", "15 (API 35)", "Pixel 9 Pro", "BL 锁", "31.5°C", "4.21 V"} {
+				for _, value := range []string{"设备信息", "系统版本", "15 (API 35)", "Pixel 9 Pro", "31.5°C", "全部设备信息"} {
 					if !strings.Contains(texts, value) {
 						t.Errorf("missing overview text %q", value)
 					}
@@ -116,7 +116,7 @@ func TestOverviewEmptyCompletionRequiresExplicitRefresh(t *testing.T) {
 	if f.reads != 0 {
 		t.Fatal("completed empty info fetched automatically")
 	}
-	click(t, s, "刷新")
+	click(t, s, "刷新信息")
 	if f.reads != 1 {
 		t.Fatal("explicit refresh was not dispatched", f.reads)
 	}
@@ -126,9 +126,9 @@ func TestOverviewExpandedLongFieldsLayout(t *testing.T) {
 	f := sample()
 	f.state.PhoneInfos = map[string]domain.PhoneInfo{"USB-DEMO-01": overviewSample()}
 	u := New(f)
-	u.overviewAdvanced = true
+	u.overviewDetailsSerial = "USB-DEMO-01"
 	cfg := u.Config()
-	cfg.Width, cfg.Height = 1000, 2200
+	cfg.Width, cfg.Height = 1000, 700
 	s, err := headless.Open(cfg, nil, headless.Options{Scale: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -137,16 +137,58 @@ func TestOverviewExpandedLongFieldsLayout(t *testing.T) {
 	clean(t, s)
 	found := false
 	for _, text := range s.Snapshot().Texts {
-		if text.Value == "构建指纹" {
+		if text.Value == "品牌" {
 			found = true
 		}
 	}
 	if !found {
 		t.Fatal("advanced information missing")
 	}
-	click(t, s, "收起详细信息")
-	if u.overviewAdvanced {
+	if _, ok := s.Hit("刷新信息"); ok {
+		t.Fatal("background information refresh remains reachable through details modal")
+	}
+	u.view.ScrollState(u.id("overview-details-scroll")).ScrollToEnd()
+	u.wake.Invalidate()
+	s.Driver().Pump()
+	if err := s.Rest(); err != nil {
+		t.Fatal(err)
+	}
+	clean(t, s)
+	if !s.HasText("构建指纹") || !s.HasText("内核版本") {
+		t.Fatal("long diagnostic fields are not reachable by scrolling")
+	}
+	workspaceScreenshot(t, s, "overview-details-scrolled")
+	workspaceClick(t, s, "关闭详情")
+	if u.overviewDetailsSerial != "" {
 		t.Fatal("advanced section did not collapse")
+	}
+}
+
+func TestOverviewScreenshotControlsFollowSelectedDevice(t *testing.T) {
+	f := &workspaceFixture{fixture: sample()}
+	u := New(f)
+	s, err := headless.Open(u.Config(), nil, headless.Options{Scale: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, device := range []struct{ label, serial string }{{"Pixel 9 Pro", "USB-DEMO-01"}, {"Xiaomi 15", "192.168.1.28:37001"}} {
+		click(t, s, device.label)
+		click(t, s, "保存截图")
+		if f.action != "capture" || f.serial != device.serial {
+			t.Fatal("capture targeted wrong device")
+		}
+		click(t, s, "刷新截图")
+		if f.previewSerial != device.serial {
+			t.Fatal("preview targeted wrong device")
+		}
+	}
+	click(t, s, "Galaxy S25")
+	f.action, f.previewSerial = "", ""
+	_ = s.ClickLabel("保存截图")
+	_ = s.ClickLabel("刷新截图")
+	if f.action != "" || f.previewSerial != "" {
+		t.Fatal("unauthorized device screenshot controls dispatched actions")
 	}
 }
 
@@ -170,14 +212,14 @@ func TestOverviewLoadingDisablesRefreshAndFailureKeepsCards(t *testing.T) {
 		for _, text := range s.Snapshot().Texts {
 			texts += text.Value + "\n"
 		}
-		if !strings.Contains(texts, "基本信息") {
+		if !strings.Contains(texts, "设备信息") {
 			t.Fatal("error hid successful information")
 		}
 		if loading {
 			if !strings.Contains(texts, "正在读取设备信息") {
 				t.Fatal("missing loading status")
 			}
-			_ = s.ClickLabel("刷新")
+			_ = s.ClickLabel("刷新信息")
 			if f.reads != 0 {
 				t.Fatal("loading refresh was not disabled")
 			}

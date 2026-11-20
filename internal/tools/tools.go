@@ -193,7 +193,15 @@ type Process struct {
 	Err    error
 }
 
+type WindowIdentity struct{ Title, IconDir string }
+
 func (t Tools) Start(serial string, o domain.Options, display *domain.VirtualDisplay, recording string) (*Process, error) {
+	return t.StartWindow(serial, o, display, recording, WindowIdentity{})
+}
+
+// StartWindow configures only this child process, not global SDL environment or
+// files beside the scrcpy executable. Every concurrent session is independent.
+func (t Tools) StartWindow(serial string, o domain.Options, display *domain.VirtualDisplay, recording string, identity WindowIdentity) (*Process, error) {
 	if t.Scrcpy == "" {
 		return nil, errors.New("scrcpy 未就绪")
 	}
@@ -201,11 +209,24 @@ func (t Tools) Start(serial string, o domain.Options, display *domain.VirtualDis
 	if err != nil {
 		return nil, err
 	}
+	if identity.Title != "" {
+		for i := range a {
+			if a[i] == "--window-title" && i+1 < len(a) {
+				a[i+1] = identity.Title
+				break
+			}
+		}
+	}
 	p := &Process{Cmd: Command(context.Background(), t.Scrcpy, a...), Done: make(chan struct{})}
 	p.Cmd.Stdout = &p.Output
 	p.Cmd.Stderr = &p.Output
 	// Pin scrcpy to the same adb executable and local server used by the app.
 	p.Cmd.Env = localADBEnvironment(t.ADB)
+	if identity.IconDir != "" {
+		p.Cmd.Env = replaceEnv(p.Cmd.Env, "SCRCPY_ICON_DIR", identity.IconDir)
+		// Older user-configured scrcpy versions used a file instead of a directory.
+		p.Cmd.Env = replaceEnv(p.Cmd.Env, "SCRCPY_ICON_PATH", filepath.Join(identity.IconDir, "scrcpy.png"))
+	}
 	if server := filepath.Join(filepath.Dir(t.Scrcpy), "scrcpy-server"); fileExists(server) {
 		p.Cmd.Env = replaceEnv(p.Cmd.Env, "SCRCPY_SERVER_PATH", server)
 	}

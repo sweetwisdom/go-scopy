@@ -10,6 +10,12 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
+//go:embed assets/icon.png
+var windowPNG []byte
+
+// PNG returns immutable bytes for external scrcpy windows.
+func PNG() []byte { return windowPNG }
+
 //go:embed assets/icon-256.png
 var pixels []byte
 

@@ -44,15 +44,16 @@ const (
 )
 
 type Settings struct {
-	Theme         string             `json:"theme"`
-	ADBPath       string             `json:"adbPath,omitempty"`
-	ScrcpyPath    string             `json:"scrcpyPath,omitempty"`
-	OutputDir     string             `json:"outputDir"`
-	AppExportDir  string             `json:"appExportDir,omitempty"`
-	Defaults      Options            `json:"defaults"`
-	Devices       map[string]Options `json:"devices,omitempty"`
-	DeviceNames   map[string]string  `json:"deviceNames,omitempty"`
-	SavedWireless map[string]bool    `json:"savedWireless,omitempty"`
+	ScreenPreviewIntervalSeconds int                `json:"screenPreviewIntervalSeconds"`
+	Theme                        string             `json:"theme"`
+	ADBPath                      string             `json:"adbPath,omitempty"`
+	ScrcpyPath                   string             `json:"scrcpyPath,omitempty"`
+	OutputDir                    string             `json:"outputDir"`
+	AppExportDir                 string             `json:"appExportDir,omitempty"`
+	Defaults                     Options            `json:"defaults"`
+	Devices                      map[string]Options `json:"devices,omitempty"`
+	DeviceNames                  map[string]string  `json:"deviceNames,omitempty"`
+	SavedWireless                map[string]bool    `json:"savedWireless,omitempty"`
 }
 
 func (s Settings) OptionsFor(serial string) Options {
@@ -164,10 +165,11 @@ type AppListing struct {
 
 // AppMeta is the lazily resolved label and icon of one application.
 type AppMeta struct {
-	Package string
-	Label   string
-	IconPNG []byte
-	Error   string
+	Resolved bool // Includes a successful lookup with no app-specific raster icon.
+	Package  string
+	Label    string
+	IconPNG  []byte
+	Error    string
 }
 
 // AppExportProgress is a snapshot; zero Total means this is not an export task.
@@ -185,7 +187,28 @@ type Task struct {
 	Export                      AppExportProgress
 }
 
+// ScreenPreview is an ephemeral in-memory capture, never a saved screenshot.
+type ScreenPreview struct {
+	Serial    string
+	PNG       []byte
+	Loading   bool
+	UpdatedAt time.Time
+	Error     string
+}
+
+// ScreenPreviewBackend is optional so read-only/offline backends remain usable.
+type ScreenPreviewBackend interface {
+	FetchPreview(serial string)
+	ClearPreview(serial string)
+}
+
+// AppCacheBackend clears only app metadata/icon caches, never device records or exports.
+type AppCacheBackend interface{ ClearAppCache() }
+
 type State struct {
+	SharedAppMetas                                 map[string]AppMeta
+	AppCacheGeneration                             uint64
+	Preview                                        ScreenPreview
 	Devices                                        []Device
 	Sessions                                       map[string]Session
 	Tasks                                          []Task
