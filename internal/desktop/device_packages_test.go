@@ -1,7 +1,11 @@
 package desktop
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"math"
 	"os"
 	"path/filepath"
@@ -42,9 +46,21 @@ func TestPackageToolbarSpacingAtWindowSizes(t *testing.T) {
 					t.Fatalf("missing header text %q", value)
 					return ui.Rect{}
 				}
-				title, count, summary := bounds("应用包", 15), bounds("12 个应用", 11), bounds("系统 9 · 用户 3", 11)
-				if count.X < title.X+title.Width+8 || summary.X < count.X+count.Width+8 {
-					t.Fatalf("overlapping title/badges: %+v %+v %+v", title, count, summary)
+				title := bounds("应用包", 15)
+				count, ok := s.Hit("12 个应用")
+				if !ok {
+					t.Fatal("all filter not clickable")
+				}
+				system, ok := s.Hit("系统 9")
+				if !ok {
+					t.Fatal("system filter not clickable")
+				}
+				user, ok := s.Hit("用户 3")
+				if !ok {
+					t.Fatal("user filter not clickable")
+				}
+				if count.Bounds.X < title.X+title.Width+8 || system.Bounds.X < count.Bounds.X+count.Bounds.Width+5 || user.Bounds.X < system.Bounds.X+system.Bounds.Width+5 {
+					t.Fatal("overlapping title/filter buttons")
 				}
 				install, ok := s.Hit("安装 APK")
 				if !ok {
@@ -57,7 +73,7 @@ func TestPackageToolbarSpacingAtWindowSizes(t *testing.T) {
 				if refresh.Bounds.X < install.Bounds.X+install.Bounds.Width+8 {
 					t.Fatalf("buttons touch: %+v %+v", install.Bounds, refresh.Bounds)
 				}
-				if summary.X+summary.Width+8 > install.Bounds.X {
+				if user.Bounds.X+user.Bounds.Width+8 > install.Bounds.X {
 					t.Fatal("metadata overlaps actions")
 				}
 				center := func(r ui.Rect) float64 { return float64(r.Y + r.Height/2) }
@@ -75,5 +91,93 @@ func TestPackageToolbarSpacingAtWindowSizes(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestAppIconBitmapPixelsAndRefresh(t *testing.T) {
+	encode := func(c color.NRGBA) []byte {
+		t.Helper()
+		img := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+		img.SetNRGBA(0, 0, c)
+		var data bytes.Buffer
+		if err := png.Encode(&data, img); err != nil {
+			t.Fatal(err)
+		}
+		return data.Bytes()
+	}
+	data := encode(color.NRGBA{R: 200, G: 100, B: 50, A: 128})
+	bmp, ok := appIconBitmap("com.example.app", data)
+	if !ok || bmp.Width != 1 || bmp.Height != 1 || bmp.Stride != 4 {
+		t.Fatal("invalid bitmap", bmp)
+	}
+	want := []byte{25, 50, 100, 128}
+	if !bytes.Equal(bmp.Pix, want) {
+		t.Fatalf("BGRA pixels %v, want %v; alpha must be applied once", bmp.Pix, want)
+	}
+	same, _ := appIconBitmap("com.example.app", data)
+	changed, _ := appIconBitmap("com.example.app", encode(color.NRGBA{R: 20, A: 255}))
+	if same.ID != bmp.ID || same.Version != bmp.Version || changed.ID != bmp.ID || changed.Version == bmp.Version {
+		t.Fatal("bitmap cache must reuse identical content and invalidate changed PNGs")
+	}
+	for _, bad := range [][]byte{nil, []byte("not PNG")} {
+		if _, ok := appIconBitmap("com.example.app", bad); ok {
+			t.Fatal("invalid icon must use placeholder")
+		}
+	}
+}
+
+func TestPackageKindFiltersAreClickable(t *testing.T) {
+	f := sample()
+	f.state.Apps = map[string]domain.AppListing{"USB-DEMO-01": {Apps: []domain.AppInfo{
+		{Package: "s.pkg", Label: "System app", System: true},
+		{Package: "u.pkg", Label: "User app"},
+	}}}
+	u := New(f)
+	u.deviceTab = "packages"
+	s, err := headless.Open(u.Config(), nil, headless.Options{Scale: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	assertRows := func(wantSystem, wantUser bool) {
+		t.Helper()
+		found := map[string]bool{}
+		for _, text := range s.Snapshot().Texts {
+			found[text.Value] = true
+		}
+		if found["s.pkg"] != wantSystem || found["u.pkg"] != wantUser {
+			t.Fatalf("wrong visible rows: system=%v, user=%v", found["s.pkg"], found["u.pkg"])
+		}
+	}
+	assertRows(true, true)
+	click(t, s, "系统 1")
+	if u.apps.filter != "system" {
+		t.Fatal("system click ignored")
+	}
+	assertRows(true, false)
+	click(t, s, "用户 1")
+	if u.apps.filter != "user" {
+		t.Fatal("user click ignored")
+	}
+	assertRows(false, true)
+	click(t, s, "2 个应用")
+	if u.apps.filter != "all" {
+		t.Fatal("all click ignored")
+	}
+	assertRows(true, true)
+	clean(t, s)
+}
+
+func TestPackageSearchCombinesKindAndAgentLabel(t *testing.T) {
+	u := New(sample())
+	apps := []domain.AppInfo{
+		{Package: "com.example.system", Label: "Camera", System: true},
+		{Package: "com.example.user", Label: "Camera Plus"},
+	}
+	u.apps.search.SetText("camera")
+	u.apps.filter = "user"
+	got := u.filterApps("USB-DEMO-01", apps)
+	if len(got) != 1 || got[0].Package != "com.example.user" {
+		t.Fatalf("search must use Agent labels and respect kind: %+v", got)
 	}
 }

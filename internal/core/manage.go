@@ -39,11 +39,31 @@ func (s *Service) fetch(key string, work func(ctx context.Context)) {
 
 func (s *Service) FetchPhoneInfo(serial string) {
 	s.fetch("info:"+serial, func(ctx context.Context) {
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		s.mu.Lock()
+		if s.state.PhoneInfos == nil {
+			s.state.PhoneInfos = map[string]domain.PhoneInfo{}
+		}
+		previous, exists := s.state.PhoneInfos[serial]
+		if !exists {
+			previous.BatteryLevel = -1
+			previous.MemAvailableKB = -1
+		}
+		previous.Loading = true
+		s.state.PhoneInfos[serial] = previous
+		s.mu.Unlock()
+		s.wake()
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		info, err := s.tool.PhoneInfo(ctx, serial)
+		info.UpdatedAt = time.Now()
 		if err != nil {
 			info.Error = err.Error()
+			if !previous.UpdatedAt.IsZero() {
+				previous.Loading = false
+				previous.Error = info.Error + "（保留上次结果）"
+				previous.Warnings = info.Warnings
+				info = previous
+			}
 		}
 		s.mu.Lock()
 		if s.state.PhoneInfos == nil {
@@ -162,46 +182,6 @@ func (s *Service) FileUpload(serial, local, remote string) {
 
 func (s *Service) FileDownload(serial, remote, localDir string) {
 	s.FileTask(serial, fileview.Operation{Action: "download", Path: remote, Target: localDir})
-}
-
-// AppExport saves one reinstallable base APK under its package and version
-// name.
-func (s *Service) AppExport(serial, pkg, localDir string) {
-	s.submit("导出安装包 · "+pkg, func(ctx context.Context) (string, string, error) {
-		if err := s.online(serial); err != nil {
-			return "", "", err
-		}
-		paths, err := s.tool.AppPaths(ctx, serial, pkg)
-		if err != nil {
-			return "", "", err
-		}
-		if localDir == "" {
-			s.mu.Lock()
-			localDir = s.state.Settings.OutputDir
-			s.mu.Unlock()
-		}
-		if err := os.MkdirAll(localDir, 0700); err != nil {
-			return "", "", err
-		}
-		version := ""
-		if apps, err := s.tool.ListApps(ctx, serial); err == nil {
-			for _, a := range apps {
-				if a.Package == pkg {
-					version = a.VersionName
-					break
-				}
-			}
-		}
-		name := pkg
-		if version != "" {
-			name += "-" + version
-		}
-		local := filepath.Join(localDir, name+".apk")
-		if _, err := s.tool.Pull(ctx, serial, paths[0], local); err != nil {
-			return "", "", err
-		}
-		return "安装包已导出", local, nil
-	})
 }
 
 // AppBackup keeps every APK of a package (base plus splits) plus a manifest

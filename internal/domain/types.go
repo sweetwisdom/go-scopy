@@ -166,10 +166,19 @@ type AppMeta struct {
 	Error   string
 }
 
+// AppExportProgress is a snapshot; zero Total means this is not an export task.
+type AppExportProgress struct {
+	Phase                    string
+	Serial, Current          string
+	Completed, Failed, Total int
+	Bytes, TotalBytes        int64
+}
+
 type Task struct {
 	ID                          uint64
 	Title, Status, Detail, Path string
 	Started                     time.Time
+	Export                      AppExportProgress
 }
 
 type State struct {
@@ -221,6 +230,7 @@ type Backend interface {
 	// App operations run as tasks in the task center. Export saves one
 	// reinstallable base APK; backup keeps every split APK plus a manifest.
 	AppExport(serial, pkg, localDir string)
+	ExportApps(serial string, packages []string, destination string, singleFile bool)
 	AppBackup(serial, pkg, localDir string)
 	AppUninstall(serial, pkg string, system bool)
 

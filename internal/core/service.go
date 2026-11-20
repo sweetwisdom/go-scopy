@@ -215,6 +215,10 @@ func firstLine(s string) string {
 }
 
 func (s *Service) submit(title string, work func(context.Context) (string, string, error)) uint64 {
+	return s.submitWithProgress(title, domain.AppExportProgress{}, func(ctx context.Context, _ func(domain.AppExportProgress)) (string, string, error) { return work(ctx) })
+}
+
+func (s *Service) submitWithProgress(title string, initial domain.AppExportProgress, work func(context.Context, func(domain.AppExportProgress)) (string, string, error)) uint64 {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -222,7 +226,7 @@ func (s *Service) submit(title string, work func(context.Context) (string, strin
 	}
 	s.next++
 	id := s.next
-	s.state.Tasks = append([]domain.Task{{ID: id, Title: title, Status: "running", Started: time.Now()}}, s.state.Tasks...)
+	s.state.Tasks = append([]domain.Task{{ID: id, Title: title, Status: "running", Started: time.Now(), Export: initial}}, s.state.Tasks...)
 	if len(s.state.Tasks) > 100 {
 		for i := len(s.state.Tasks) - 1; i >= 100; i-- {
 			if s.state.Tasks[i].Status != "running" {
@@ -235,7 +239,18 @@ func (s *Service) submit(title string, work func(context.Context) (string, strin
 	s.wake()
 	go func() {
 		defer s.wg.Done()
-		detail, path, err := work(s.ctx)
+		report := func(progress domain.AppExportProgress) {
+			s.mu.Lock()
+			for i := range s.state.Tasks {
+				if s.state.Tasks[i].ID == id {
+					s.state.Tasks[i].Export = progress
+					break
+				}
+			}
+			s.mu.Unlock()
+			s.wake()
+		}
+		detail, path, err := work(s.ctx, report)
 		s.mu.Lock()
 		for i := range s.state.Tasks {
 			if s.state.Tasks[i].ID == id {

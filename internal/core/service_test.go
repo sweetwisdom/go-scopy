@@ -23,6 +23,34 @@ func TestMain(m *testing.M) {
 	if os.Getenv("GOSCOPY_TOOL_HELPER") == "1" {
 		a := os.Args[1:]
 		joined := strings.Join(a, " ")
+		if os.Getenv("GOSCOPY_EXPORT_HELPER") != "" {
+			runExportHelper(a)
+			return
+		}
+		if mode := os.Getenv("GOSCOPY_PHONEINFO_HELPER"); mode != "" && strings.Contains(joined, "shell ") {
+			if mode == "fail" {
+				fmt.Fprintln(os.Stderr, "offline")
+				os.Exit(1)
+			}
+			switch {
+			case strings.HasSuffix(joined, "shell getprop"):
+				if mode == "slow" {
+					time.Sleep(300 * time.Millisecond)
+				}
+				fmt.Print("[ro.product.model]: [demo]\r\n[ro.product.manufacturer]: [test]\r\n")
+			case strings.Contains(joined, "dumpsys battery"):
+				fmt.Print("level: 80\nstatus: 3\n")
+			case strings.Contains(joined, "cat /proc/meminfo"):
+				fmt.Print("MemTotal: 1000 kB\nMemAvailable: 250 kB\n")
+			case strings.Contains(joined, "df -k /data"):
+				fmt.Print("/dev/test 1000 200 800 20% /other-mount\n")
+			case strings.Contains(joined, "wm size"):
+				fmt.Print("Physical size: 900x1600\nPhysical density: 240\n")
+			case strings.Contains(joined, "__GOSCOPY_kernel__"):
+				fmt.Print("__GOSCOPY_kernel__\n6.1.0\n")
+			}
+			os.Exit(0)
+		}
 		if strings.Contains(joined, "--serial") && os.Getenv("GOSCOPY_SESSION_HELPER_DIR") != "" {
 			runSessionHelper()
 			return

@@ -3,6 +3,7 @@ package desktop
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/go-scopy/go-scopy/internal/domain"
 	"github.com/vivaui/viva/flex"
@@ -100,44 +101,60 @@ func (u *UI) deviceTabButton(f *flex.Frame, key, label string) bool {
 	return b.Clicked()
 }
 
-// deviceOverview is the info-and-shortcuts tab: device, network, battery,
-// memory and storage cards plus the ADB quick actions.
+// deviceOverview keeps acquisition state separate from optional device fields.
 func (u *UI) deviceOverview(f *flex.Frame, d domain.Device) {
-	info := u.state.PhoneInfos[d.Serial]
-	f.Row().FillWidth().Items(flex.Center).Children(func() {
+	info, exists := u.state.PhoneInfos[d.Serial]
+	ready := d.State == "device"
+	if !exists {
+		info.BatteryLevel, info.MemAvailableKB = -1, -1
+		if ready {
+			u.backend.FetchPhoneInfo(d.Serial)
+		}
+	}
+	f.Row().FillWidth().Height(36).Gap(10).Items(flex.Center).Children(func() {
 		f.Icon(iconPhone).Size(18, 18).Color(u.c.blue)
-		f.Text("设备概览").FontSize(15).Weight(ui.WeightSemibold).Grow(1).MarginSides(8, 0, 0, 0)
-		if f.Button(u.id("refresh-overview"), "刷新").Small().Clicked() {
+		f.Text("设备概览").FontSize(15).Weight(ui.WeightSemibold)
+		status := "尚未读取"
+		switch {
+		case info.Loading || (!exists && ready):
+			status = "正在读取设备信息…"
+		case !ready:
+			status = "设备未连接"
+		case info.Error != "":
+			status = "读取失败，可重试"
+		case len(info.Warnings) > 0:
+			status = fmt.Sprintf("已读取 · %d 项提示", len(info.Warnings))
+		case !info.UpdatedAt.IsZero():
+			status = "更新于 " + info.UpdatedAt.Format("15:04:05")
+		case exists:
+			status = "已读取"
+		}
+		f.Text(status).FontSize(11).Color(u.c.muted).Grow(1).Ellipsis()
+		if f.Button(u.id("refresh-overview"), "刷新").Small().Outline().Disabled(!ready || info.Loading).Clicked() {
 			u.backend.FetchPhoneInfo(d.Serial)
 		}
 	})
 	if info.Error != "" {
-		u.card(f, func() { u.small(f, "读取设备信息失败："+info.Error) })
-		return
+		u.small(f, "读取设备信息失败："+info.Error)
+	} else if len(info.Warnings) > 0 {
+		u.small(f, "部分信息未能读取，其余结果正常显示；展开详细信息可查看原因。")
 	}
-	if info.Model == "" && info.Manufacturer == "" {
-		u.small(f, "正在读取设备信息…")
-		u.backend.FetchPhoneInfo(d.Serial)
+	if u.overviewCompact {
+		u.overviewBasic(f, info)
+		f.Row().FillWidth().Gap(14).Children(func() {
+			f.Column().Width(0).Grow(1).Children(func() { u.overviewBattery(f, info) })
+			f.Column().Width(0).Grow(1).Children(func() { u.overviewResources(f, info) })
+		})
+	} else {
+		f.Row().FillWidth().Gap(16).Children(func() {
+			f.Column().Width(0).Grow(1).Children(func() { u.overviewBasic(f, info) })
+			f.Column().Width(280).Gap(14).Children(func() {
+				u.overviewBattery(f, info)
+				u.overviewResources(f, info)
+			})
+		})
 	}
-	f.Row().FillWidth().Gap(16).Children(func() {
-		u.overviewCard(f, "设备信息", iconPhone, [][2]string{
-			{"制造商", info.Manufacturer}, {"型号", info.Model},
-			{"Android 版本", info.AndroidVersion + apiSuffix(info.APILevel)},
-		}, true)
-		u.overviewCard(f, "网络信息", iconPhone, [][2]string{
-			{"WiFi", info.WiFiSSID}, {"IP 地址", info.IPAddress},
-		}, true)
-	})
-	f.Row().FillWidth().Gap(16).Children(func() {
-		u.overviewCard(f, "电池信息", iconPhone, [][2]string{
-			{"电量", batteryText(info.BatteryLevel)}, {"状态", info.BatteryStatus},
-		}, true)
-		mem := [][2]string{{"内存", memoryText(info.MemTotalKB, info.MemAvailableKB)}}
-		u.overviewMeterCard(f, "内存使用", mem, memoryRatio(info.MemTotalKB, info.MemAvailableKB))
-	})
-	u.overviewMeterCard(f, "存储使用", [][2]string{
-		{"存储", storageText(info.StorageTotalBytes, info.StorageUsedBytes)},
-	}, storageRatio(info.StorageTotalBytes, info.StorageUsedBytes))
+	u.overviewDetails(f, info, d.Serial)
 
 	u.card(f, func() {
 		f.Text("快捷操作").FontSize(16).Weight(ui.WeightSemibold)
@@ -166,43 +183,156 @@ func (u *UI) deviceOverview(f *flex.Frame, d domain.Device) {
 	})
 }
 
-func (u *UI) overviewCard(f *flex.Frame, title string, icon ui.Icon, rows [][2]string, half bool) {
-	card := f.Column().Gap(14).Pad(18).Radius(12).Background(u.c.card).Border(1, u.c.border)
-	if half {
-		card = card.Grow(1)
+// overviewBasic uses paired rows rather than large, sparse summary tiles.
+func (u *UI) overviewBasic(f *flex.Frame, i domain.PhoneInfo) {
+	pairs := [][4]string{
+		{"品牌", i.Brand, "型号", i.Model},
+		{"制造商", i.Manufacturer, "代号", i.DeviceCode},
+		{"Android", joinInfo(i.AndroidVersion, apiSuffix(i.APILevel)), "安全补丁", i.SecurityPatch},
+		{"CPU 架构", i.CPUABI, "硬件平台", i.Hardware},
+		{"分辨率", displayInfo(i.PhysicalSize, i.OverrideSize), "DPI", displayInfo(i.PhysicalDPI, i.OverrideDPI)},
+		{"IP 地址", i.IPAddress, "Wi-Fi", i.WiFiSSID},
+		{"序列号", i.SerialNumber, "A/B 槽", i.Slot},
+		{"BL 锁", i.BootloaderState, "验证启动", i.VerifiedBoot},
+		{"闪存", i.StorageType, "开机时长", uptimeText(i.UptimeSeconds)},
 	}
-	card.Children(func() {
-		f.Row().Gap(8).Items(flex.Center).Children(func() {
-			f.Icon(icon).Size(16, 16).Color(u.c.blue)
-			f.Text(title).FontSize(14).Weight(ui.WeightSemibold)
-		})
-		for _, row := range rows {
-			f.Row().FillWidth().Items(flex.Center).Children(func() {
-				f.Text(row[0]).FontSize(12).Color(u.c.muted).Grow(1)
-				f.Text(row[1]).FontSize(13).Ellipsis()
+	f.Column().FillWidth().Gap(4).Pad(16).Radius(12).Background(u.c.card).Border(1, u.c.border).Children(func() {
+		u.overviewTitle(f, "基本信息")
+		for _, row := range pairs {
+			f.Row().FillWidth().Gap(16).Children(func() {
+				for n := 0; n < 4; n += 2 {
+					f.Row().Width(0).Grow(1).Height(30).Gap(8).Items(flex.Center).Children(func() {
+						f.Text(row[n]).Width(60).FontSize(11).Color(u.c.muted)
+						f.Text(knownInfo(row[n+1])).Width(0).Grow(1).FontSize(12).Ellipsis()
+					})
+				}
 			})
+		}
+		u.overviewLine(f, "Root 检测", i.RootStatus)
+		u.overviewLine(f, "内核", i.KernelVersion)
+	})
+}
+
+func (u *UI) overviewTitle(f *flex.Frame, title string) {
+	f.Row().FillWidth().Height(30).Gap(8).Items(flex.Center).Children(func() {
+		f.Icon(iconPhone).Size(15, 15).Color(u.c.blue)
+		f.Text(title).FontSize(14).Weight(ui.WeightSemibold)
+	})
+}
+
+func (u *UI) overviewLine(f *flex.Frame, label, value string) {
+	f.Row().FillWidth().Height(28).Gap(8).Items(flex.Center).Children(func() {
+		f.Text(label).Width(72).FontSize(11).Color(u.c.muted)
+		f.Text(knownInfo(value)).Width(0).Grow(1).FontSize(12).Ellipsis()
+	})
+}
+
+func (u *UI) overviewBattery(f *flex.Frame, i domain.PhoneInfo) {
+	f.Column().FillWidth().Gap(3).Pad(16).Radius(12).Background(u.c.card).Border(1, u.c.border).Children(func() {
+		u.overviewTitle(f, "电池信息")
+		f.Row().FillWidth().Gap(10).Items(flex.Center).Children(func() {
+			f.Text(batteryText(i.BatteryLevel)).FontSize(27).Weight(ui.WeightSemibold).Color(u.c.blue)
+			f.Text(knownInfo(i.BatteryStatus)).FontSize(12).Color(u.c.muted)
+		})
+		u.overviewLine(f, "温度", scaledInfo(i.BatteryTemperatureTenthsC, 10, "°C"))
+		u.overviewLine(f, "电压", scaledInfo(i.BatteryVoltageMV, 1000, " V"))
+		u.overviewLine(f, "健康状态", i.BatteryHealth)
+		u.overviewLine(f, "剩余电荷", scaledInfo(i.BatteryChargeCounterUAH, 1000, " mAh"))
+		u.overviewLine(f, "瞬时电流", scaledInfo(i.BatteryCurrentUA, 1000, " mA"))
+		u.small(f, "数值由设备报告；模拟器可能返回占位值。")
+	})
+}
+
+func (u *UI) overviewResources(f *flex.Frame, i domain.PhoneInfo) {
+	f.Column().FillWidth().Gap(8).Pad(16).Radius(12).Background(u.c.card).Border(1, u.c.border).Children(func() {
+		u.overviewTitle(f, "存储与内存")
+		f.Text("内存 · 已用 / 总量").FontSize(11).Color(u.c.muted)
+		f.Text(memoryText(i.MemTotalKB, i.MemAvailableKB)).FillWidth().Ellipsis().FontSize(12)
+		u.meter(f, memoryRatio(i.MemTotalKB, i.MemAvailableKB))
+		f.Text("数据分区 /data · 已用 / 总量").FontSize(11).Color(u.c.muted)
+		f.Text(storageText(i.StorageTotalBytes, i.StorageUsedBytes)).FillWidth().Ellipsis().FontSize(12)
+		u.meter(f, storageRatio(i.StorageTotalBytes, i.StorageUsedBytes))
+	})
+}
+
+func (u *UI) overviewDetails(f *flex.Frame, i domain.PhoneInfo, serial string) {
+	f.Column().FillWidth().Gap(8).Pad(16).Radius(12).Background(u.c.card).Border(1, u.c.border).Children(func() {
+		label := "展开详细信息"
+		if u.overviewAdvanced {
+			label = "收起详细信息"
+		}
+		if f.Button(u.id("overview-details"), label).Small().Ghost().Clicked() {
+			u.overviewAdvanced = !u.overviewAdvanced
+		}
+		if !u.overviewAdvanced {
+			return
+		}
+		for _, row := range [][2]string{
+			{"连接标识", serial}, {"产品名称", i.Product}, {"主板", i.Board}, {"ABI 列表", i.CPUABIs},
+			{"物理分辨率", i.PhysicalSize}, {"覆盖分辨率", i.OverrideSize},
+			{"物理 DPI", i.PhysicalDPI}, {"覆盖 DPI", i.OverrideDPI},
+			{"CPU 最小频率", scaledInfo(i.CPUFreqMinKHz, 1000, " MHz")},
+			{"CPU 最大频率", scaledInfo(i.CPUFreqMaxKHz, 1000, " MHz")},
+			{"CPU 当前频率", scaledInfo(i.CPUFreqCurKHz, 1000, " MHz")},
+			{"构建 ID", i.BuildID}, {"构建版本", i.BuildDisplay}, {"构建指纹", i.Fingerprint},
+			{"基带版本", i.Baseband}, {"Root 检测依据", i.RootStatus}, {"内核版本", i.KernelVersion},
+		} {
+			f.Text(row[0]).FontSize(11).Color(u.c.muted)
+			f.Paragraph(knownInfo(row[1]), 12).FillWidth().FontSize(12)
+		}
+		u.small(f, "屏幕数值中的箭头表示物理值 → 覆盖值。剩余电荷不是设计容量；电流来自设备 sysfs，正负方向由设备驱动定义。Root 检测不执行 su 或任何提权操作。")
+		for _, warning := range i.Warnings {
+			u.small(f, warning)
 		}
 	})
 }
 
-func (u *UI) overviewMeterCard(f *flex.Frame, title string, rows [][2]string, ratio float32) {
-	u.card(f, func() {
-		f.Row().Gap(8).Items(flex.Center).Children(func() {
-			f.Icon(iconPhone).Size(16, 16).Color(u.c.blue)
-			f.Text(title).FontSize(14).Weight(ui.WeightSemibold)
-		})
-		for _, row := range rows {
-			f.Row().FillWidth().Items(flex.Center).Children(func() {
-				f.Text(row[0]).FontSize(12).Color(u.c.muted).Grow(1)
-				f.Text(row[1]).FontSize(13)
-			})
-		}
-		u.meter(f, ratio)
-	})
+func knownInfo(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "未知"
+	}
+	return value
+}
+
+func joinInfo(version, suffix string) string {
+	if version == "" {
+		return strings.TrimSpace(suffix)
+	}
+	return version + suffix
+}
+
+func displayInfo(physical, override string) string {
+	if override == "" {
+		return physical
+	}
+	return knownInfo(physical) + " → " + override
+}
+
+func scaledInfo(n *int64, divisor float64, unit string) string {
+	if n == nil {
+		return ""
+	}
+	return strconv.FormatFloat(float64(*n)/divisor, 'f', -1, 64) + unit
+}
+
+func uptimeText(seconds *int64) string {
+	if seconds == nil {
+		return ""
+	}
+	n := *seconds
+	if n >= 86400 {
+		return fmt.Sprintf("%d天 %d小时", n/86400, n%86400/3600)
+	}
+	return fmt.Sprintf("%d小时 %d分", n/3600, n%3600/60)
 }
 
 // meter is the thin progress bar under a usage line.
 func (u *UI) meter(f *flex.Frame, ratio float32) {
+	if ratio < 0 {
+		f.Stack().FillWidth().Height(8).Radius(4).Background(u.c.border)
+		f.Text("未能读取用量").FontSize(11).Color(u.c.muted)
+		return
+	}
 	ratio = max(min(ratio, 1), 0)
 	f.Stack().FillWidth().Height(8).Radius(4).Background(u.c.border).Children(func() {
 		f.Stack().WidthPercent(ratio * 100).FillHeight().Radius(4).Background(u.c.blue)
@@ -229,7 +359,7 @@ func batteryText(level int) string {
 
 // memoryText shows "7.93 GB / 14.84 GB" style usage of RAM.
 func memoryText(totalKB, availableKB int64) string {
-	if totalKB <= 0 {
+	if totalKB <= 0 || availableKB < 0 || availableKB > totalKB {
 		return "未知"
 	}
 	used := totalKB - availableKB
@@ -237,22 +367,22 @@ func memoryText(totalKB, availableKB int64) string {
 }
 
 func memoryRatio(totalKB, availableKB int64) float32 {
-	if totalKB <= 0 {
-		return 0
+	if totalKB <= 0 || availableKB < 0 || availableKB > totalKB {
+		return -1
 	}
 	return float32(totalKB-availableKB) / float32(totalKB)
 }
 
 func storageText(total, used int64) string {
-	if total <= 0 {
+	if total <= 0 || used < 0 || used > total {
 		return "未知"
 	}
 	return formatBytes(used) + " / " + formatBytes(total)
 }
 
 func storageRatio(total, used int64) float32 {
-	if total <= 0 {
-		return 0
+	if total <= 0 || used < 0 || used > total {
+		return -1
 	}
 	return float32(used) / float32(total)
 }

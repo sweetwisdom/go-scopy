@@ -66,6 +66,7 @@ func (f *fixture) FileRemove(string, string, bool)                              
 func (f *fixture) FileUpload(string, string, string)                                {}
 func (f *fixture) FileDownload(string, string, string)                              {}
 func (f *fixture) AppExport(string, string, string)                                 {}
+func (f *fixture) ExportApps(string, []string, string, bool)                        {}
 func (f *fixture) AppBackup(string, string, string)                                 {}
 func (f *fixture) AppUninstall(string, string, bool)                                {}
 func (f *fixture) OpenShell(string, int, int, func()) (domain.Terminal, error) {

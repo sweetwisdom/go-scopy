@@ -49,7 +49,7 @@ func collectPhoneInfo(ctx context.Context, run func(context.Context, string) ([]
 		{"电池", "dumpsys battery", parsePhoneBattery},
 		{"内存", "cat /proc/meminfo", parsePhoneMemory},
 		{"存储", "df -k /data", parsePhoneStorage},
-		{"屏幕", "wm size; wm density", parsePhoneDisplay},
+		{"屏幕", "wm size; wm density; :", parsePhoneDisplay},
 		{"系统详情", phoneSystemCommand, parsePhoneSystem},
 		{"网络地址", "ip -f inet addr show wlan0", func(i *PhoneInfo, text string) bool {
 			if m := inetLine.FindStringSubmatch(text); m != nil {
@@ -218,7 +218,7 @@ func parsePhoneMemory(i *PhoneInfo, text string) bool {
 			continue
 		}
 		n := number(fields[0])
-		if n == nil || *n < 0 {
+		if n == nil || *n < 0 || *n > math.MaxInt64/1024 {
 			continue
 		}
 		switch strings.TrimSpace(key) {
@@ -307,6 +307,11 @@ func parsePhoneSystem(i *PhoneInfo, text string) bool {
 	}
 	i.CPUFreqMinKHz, i.CPUFreqMaxKHz = number(fields["cpu_min"]), number(fields["cpu_max"])
 	i.CPUFreqCurKHz = number(fields["cpu_cur"])
+	for _, frequency := range []**int64{&i.CPUFreqMinKHz, &i.CPUFreqMaxKHz, &i.CPUFreqCurKHz} {
+		if *frequency != nil && **frequency < 0 {
+			*frequency = nil
+		}
+	}
 	i.BatteryCurrentUA = number(fields["current"])
 	return i.KernelVersion != "" || i.UptimeSeconds != nil
 }

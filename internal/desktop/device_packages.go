@@ -14,11 +14,12 @@ import (
 
 // appsState is the app-packages tab's own view state.
 type appsState struct {
-	search   flex.Field
-	filter   string // "all" | "user" | "system"
-	selected map[string]bool
-	confirm  string // package pending uninstall confirmation
-	menuFor  string // package whose row actions are open
+	search         flex.Field
+	filter         string // "all" | "user" | "system"
+	selected       map[string]bool
+	confirm        string   // package pending uninstall confirmation
+	menuFor        string   // package whose row actions are open
+	exportPackages []string // Snapshot for the pending native destination picker.
 }
 
 // devicePackages is the app list: search, filter, install, export, backup and
@@ -50,10 +51,22 @@ func (u *UI) devicePackages(f *flex.Frame, d domain.Device) {
 				f.Icon(iconPhone).Size(18, 18).Color(u.c.blue)
 				f.Text("应用包").FontSize(15).Weight(ui.WeightSemibold)
 			})
-			f.Row().PadX(8).PadY(4).Radius(8).Background(u.c.selected).Children(func() {
-				f.Text(strconv.Itoa(len(listing.Apps)) + " 个应用").FontSize(11).Color(u.c.muted)
+			f.Row().Gap(6).Items(flex.Center).Children(func() {
+				for _, option := range []struct{ key, label string }{
+					{"all", strconv.Itoa(len(listing.Apps)) + " 个应用"},
+					{"system", "系统 " + strconv.Itoa(systems)},
+					{"user", "用户 " + strconv.Itoa(users)},
+				} {
+					button := f.Button(u.id("apps-kind-"+option.key), option.label).Small()
+					if u.apps.filter != option.key {
+						button = button.Ghost()
+					}
+					if button.Clicked() {
+						u.apps.filter = option.key
+						u.wake.Invalidate()
+					}
+				}
 			})
-			f.Text("系统 " + strconv.Itoa(systems) + " · 用户 " + strconv.Itoa(users)).FontSize(11).Color(u.c.muted)
 		})
 		if f.Button(u.id("apps-install"), "安装 APK").Small().Disabled(!ready).Clicked() {
 			u.pendingDialog = "apk"
@@ -81,11 +94,14 @@ func (u *UI) devicePackages(f *flex.Frame, d domain.Device) {
 		}
 		count := len(u.apps.selected)
 		if f.Button(u.id("apps-export"), "导出").Small().Outline().Disabled(count == 0 || !ready).Clicked() {
-			for pkg := range u.apps.selected {
-				u.backend.AppExport(d.Serial, pkg, "")
+			packages := make([]string, 0, count)
+			// Include selections hidden by a filter, in stable listing order.
+			for _, a := range listing.Apps {
+				if u.apps.selected[a.Package] {
+					packages = append(packages, a.Package)
+				}
 			}
-			u.apps.selected = map[string]bool{}
-			u.wake.Invalidate()
+			u.requestAppExport(d.Serial, packages)
 		}
 		if f.Button(u.id("apps-backup"), "备份").Small().Outline().Disabled(count == 0 || !ready).Clicked() {
 			for pkg := range u.apps.selected {
@@ -102,6 +118,8 @@ func (u *UI) devicePackages(f *flex.Frame, d domain.Device) {
 			f.Text("已选 " + strconv.Itoa(count) + " 项").FontSize(11).Color(u.c.muted)
 		}
 	})
+
+	u.appExportStatus(f, d.Serial)
 
 	if u.apps.confirm != "" {
 		u.card(f, func() {
@@ -185,7 +203,7 @@ func (u *UI) appRow(f *flex.Frame, d domain.Device, a domain.AppInfo) {
 			f.Row().Gap(6).Items(flex.Center).Children(func() {
 				f.Text(label).FontSize(13).Weight(ui.WeightMedium).Ellipsis()
 				if a.System {
-					f.Text("系统").FontSize(9).Color(u.c.muted).PadX(6).PadY(2).Radius(6).Background(u.c.selected)
+					f.Text("系统").FontSize(9).Shrink(0).Color(u.c.muted).PadX(6).PadY(2).Radius(6).Background(u.c.selected)
 				}
 			})
 			f.Text(a.Package).FontSize(11).Color(u.c.muted).Ellipsis()
@@ -211,7 +229,7 @@ func (u *UI) appRow(f *flex.Frame, d domain.Device, a domain.AppInfo) {
 	u.card(f, func() {
 		f.Row().FillWidth().Gap(10).Children(func() {
 			if f.Button(u.id("app-export-one"), "导出安装包").Small().Outline().Disabled(!ready).Clicked() {
-				u.backend.AppExport(d.Serial, a.Package, "")
+				u.requestAppExport(d.Serial, []string{a.Package})
 				u.apps.menuFor = ""
 				u.wake.Invalidate()
 			}
@@ -256,6 +274,9 @@ func (u *UI) filterApps(serial string, apps []domain.AppInfo) []domain.AppInfo {
 		}
 		if query != "" {
 			label := u.state.AppMetas[serial+"\x00"+a.Package].Label
+			if label == "" {
+				label = a.Label
+			}
 			if !strings.Contains(strings.ToLower(a.Package), query) &&
 				(label == "" || !strings.Contains(strings.ToLower(label), query)) {
 				continue
@@ -284,7 +305,7 @@ func firstChar(s string) string {
 }
 
 // appIconBitmap converts one app icon's PNG bytes to a canvas bitmap. The ID
-// is a hash of the package so the canvas caches each icon once.
+// identifies the package; Version changes with the PNG, including across devices.
 func appIconBitmap(pkg string, data []byte) (ui.Bitmap, bool) {
 	if len(data) == 0 {
 		return ui.Bitmap{}, false
@@ -303,15 +324,17 @@ func appIconBitmap(pkg string, data []byte) (ui.Bitmap, bool) {
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			r, g, b, a := img.At(x, y).RGBA()
-			// Premultiplied BGRA, the same layout brand.Bitmap produces.
-			pix[i] = byte((uint32(b>>8)*uint32(a>>8) + 127) / 255)
-			pix[i+1] = byte((uint32(g>>8)*uint32(a>>8) + 127) / 255)
-			pix[i+2] = byte((uint32(r>>8)*uint32(a>>8) + 127) / 255)
+			// RGBA() already returns premultiplied channels; do not multiply again.
+			pix[i] = byte(b >> 8)
+			pix[i+1] = byte(g >> 8)
+			pix[i+2] = byte(r >> 8)
 			pix[i+3] = byte(a >> 8)
 			i += 4
 		}
 	}
 	hsh := fnv.New64a()
 	hsh.Write([]byte(pkg))
-	return ui.Bitmap{ID: hsh.Sum64() | 1, Version: 1, Width: w, Height: h, Stride: w * 4, Pix: pix}, true
+	content := fnv.New32a()
+	content.Write(data)
+	return ui.Bitmap{ID: hsh.Sum64() | 1, Version: content.Sum32(), Width: w, Height: h, Stride: w * 4, Pix: pix}, true
 }

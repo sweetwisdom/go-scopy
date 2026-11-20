@@ -29,6 +29,7 @@ func palette(dark bool) colors {
 }
 
 type UI struct {
+	overviewCompact, overviewAdvanced   bool
 	scripts                             scriptPanel
 	backend                             domain.Backend
 	state                               domain.State
@@ -244,6 +245,10 @@ func (u *UI) onWake() {
 	if u.pendingDialog != "" {
 		kind, serial := u.pendingDialog, u.dialogSerial
 		u.pendingDialog = ""
+		if kind == "app-export" {
+			u.openAppExportDialog(serial)
+			return
+		}
 		if kind == "file-workspace" {
 			u.openFileWebDialog()
 			return
@@ -297,6 +302,7 @@ func (u *UI) dialog(kind string) {
 }
 
 func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
+	u.overviewCompact = size.Width < 1180
 	u.fileWeb.slotSet = false
 	u.terminalSlot = flex.Box{}
 	u.terminalSlotSet = false

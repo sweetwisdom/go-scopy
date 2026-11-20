@@ -18,6 +18,8 @@ const (
 	agentDeviceJar = "/data/local/tmp/go-scrcpy-agent.jar"
 	agentSocket    = "localabstract:go-scrcpy-agent"
 	agentMaxBlock  = 16 << 20
+	// Preserve native icon sizes; the bundled Agent truncates ratios when shrinking.
+	agentIconSize = 1024
 )
 
 // listAppsAgent asks the on-device Android PackageManager for the complete
@@ -59,12 +61,17 @@ func (t Tools) readAgentApps(ctx context.Context, serial string) ([]AppInfo, err
 	} else {
 		_ = conn.SetDeadline(time.Now().Add(90 * time.Second))
 	}
-	for _, n := range []int32{10, 3, 64} {
+	for _, n := range []int32{10, 3, agentIconSize} {
 		if err := binary.Write(conn, binary.BigEndian, n); err != nil {
 			return nil, err
 		}
 	}
-	if _, err := readAgentBlock(conn); err != nil { // default icon
+	return readAgentAppsResponse(conn)
+}
+
+func readAgentAppsResponse(conn io.Reader) ([]AppInfo, error) {
+	defaultIcon, err := readAgentBlock(conn)
+	if err != nil {
 		return nil, fmt.Errorf("读取 Go-Scrcpy Agent 默认图标：%w", err)
 	}
 	var count int32
@@ -129,6 +136,9 @@ func (t Tools) readAgentApps(ctx context.Context, serial string) ([]AppInfo, err
 		icon, err := readAgentBlock(conn)
 		if err != nil {
 			return nil, fmt.Errorf("读取 %s 图标：%w", pkg, err)
+		}
+		if len(icon) == 0 {
+			icon = defaultIcon // Display fallback, not an application-specific icon.
 		}
 		if pkg == "" {
 			continue
