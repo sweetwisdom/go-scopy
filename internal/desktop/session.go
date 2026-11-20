@@ -47,17 +47,17 @@ func (u *UI) startWindow(options domain.Options, record bool) bool {
 	return u.openSessionWindow(u.selected, domain.SessionMirror, nil, options, record)
 }
 
-// openSessionWindow opens the island control window and the session it
-// controls: the main screen mirror, or one virtual display.
+// openSessionWindow owns the one island for a device's main-screen mirror.
+// Virtual apps use ordinary scrcpy windows and never allocate an island.
 func (u *UI) openSessionWindow(serial string, kind domain.SessionKind, display *domain.VirtualDisplay, options domain.Options, record bool) bool {
+	if kind != domain.SessionMirror {
+		return false
+	}
 	backend, ok := u.backend.(domain.HostedBackend)
 	if !ok || u.application == nil || !windowhost.Supported || os.Getenv("VIVA_HEADLESS") == "1" {
 		return false
 	}
 	session := domain.SessionID(serial, kind)
-	if kind == domain.SessionVirtual {
-		session = domain.NewVirtualSessionID(serial)
-	}
 	if existing := u.sessionWindows[session]; existing != nil {
 		if !existing.ended {
 			existing.window.Show()
@@ -74,12 +74,6 @@ func (u *UI) openSessionWindow(serial string, kind domain.SessionKind, display *
 		}
 	}
 	prefix := "Go-Scopy Island"
-	if kind == domain.SessionVirtual {
-		prefix = "Go-Scopy Virtual"
-		if display != nil {
-			name = u.virtualAppLabel(serial, display.StartApp) + " · " + name
-		}
-	}
 	title := fmt.Sprintf("%s · %s · #%d", prefix, name, nextSessionWindow.Add(1))
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &sessionWindow{owner: u, serial: serial, name: name, session: session, kind: kind,

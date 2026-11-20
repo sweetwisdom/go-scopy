@@ -22,20 +22,21 @@ import (
 )
 
 type Service struct {
-	scripts   *scriptService
-	mu        sync.Mutex
-	configMu  sync.Mutex
-	state     domain.State
-	tool      tools.Tools
-	dir       string
-	ctx       context.Context
-	cancel    context.CancelFunc
-	notify    func()
-	processes map[string]*tools.Process
-	inflight  map[string]bool
-	closed    bool
-	wg        sync.WaitGroup
-	next      uint64
+	scripts    *scriptService
+	mu         sync.Mutex
+	appCacheMu sync.Mutex
+	configMu   sync.Mutex
+	state      domain.State
+	tool       tools.Tools
+	dir        string
+	ctx        context.Context
+	cancel     context.CancelFunc
+	notify     func()
+	processes  map[string]*tools.Process
+	inflight   map[string]bool
+	closed     bool
+	wg         sync.WaitGroup
+	next       uint64
 }
 
 func New(dir, root string) (*Service, error) {

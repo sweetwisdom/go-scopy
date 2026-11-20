@@ -161,7 +161,7 @@ func (u *UI) sendScriptContext() {
 	}
 	// The existing runner coalesces notifications. Poll only visible active runs
 	// so a final short burst before a long sleep still reaches the output pane.
-	running := false
+	running := state.Dependencies != nil && (state.Dependencies.Status == "running" || state.Dependencies.Status == "stopping")
 	for _, r := range state.Runs {
 		if r.Active() {
 			running = true
@@ -184,7 +184,7 @@ func (u *UI) sendScriptContext() {
 	for _, r := range state.Runs {
 		runs = append(runs, map[string]any{"id": r.ID, "request": r.Request, "status": r.Status, "started": r.Started, "finished": r.Finished, "exitCode": r.ExitCode, "error": r.Error, "outputDir": r.OutputDir, "log": r.Log})
 	}
-	data, _ := json.Marshal(map[string]any{"type": "context", "theme": u.state.Settings.Theme, "devices": devices, "selected": u.selected, "active": u.scriptActive(), "runs": runs, "last": state.Last, "error": state.Error})
+	data, _ := json.Marshal(map[string]any{"type": "context", "theme": u.state.Settings.Theme, "devices": devices, "selected": u.selected, "active": u.scriptActive(), "runs": runs, "last": state.Last, "error": state.Error, "dependencies": state.Dependencies, "dependencySupport": supportsScriptDependencies(u.backend)})
 	if string(data) != w.contextSent {
 		w.contextSent = string(data)
 		u.postScript(json.RawMessage(data))
@@ -229,8 +229,27 @@ func (u *UI) scriptPageMessage(raw string) {
 	var data any
 	var err error
 	switch m.Action {
+	case "dependencies-check", "dependencies-install", "dependencies-stop":
+		if environment, supported := u.backend.(domain.ScriptDependencyBackend); supported {
+			switch m.Action {
+			case "dependencies-check":
+				err = environment.CheckScriptDependencies(m.Python)
+			case "dependencies-install":
+				err = environment.InstallScriptDependencies(m.Python)
+			case "dependencies-stop":
+				environment.StopScriptDependencies()
+			}
+		} else {
+			err = errors.New("后端不支持 Python 依赖管理")
+		}
 	case "list":
 		data, err = files.ScriptFiles()
+	case "trust":
+		if trust, supported := files.(scriptview.TrustBackend); supported {
+			data, err = trust.TrustScriptFile(m.Path, m.Version, m.Trusted)
+		} else {
+			err = errors.New("后端不支持记住脚本信任")
+		}
 	case "read":
 		data, err = files.ReadScriptFile(m.Path)
 	case "new":
@@ -270,10 +289,6 @@ func (u *UI) scriptPageMessage(raw string) {
 			err = errors.New("后端未启用脚本运行器")
 			break
 		}
-		if !m.Trusted {
-			err = errors.New("请先确认信任此脚本；脚本以本机用户权限运行，并非沙箱")
-			break
-		}
 		if !u.terminalOnline(m.Serial) {
 			err = errors.New("请选择当前已连接并授权的设备")
 			break
@@ -282,6 +297,14 @@ func (u *UI) scriptPageMessage(raw string) {
 		doc, err = files.ReadScriptFile(m.Path)
 		if err == nil && doc.Version != m.Version {
 			err = errors.New("脚本已发生变化，请保存后重新执行")
+		}
+		if err == nil && !m.Trusted && !doc.Trusted {
+			err = errors.New("请先确认信任此脚本；脚本以本机用户权限运行，并非沙箱")
+		}
+		if err == nil && m.Trusted && !doc.Trusted {
+			if trust, supported := files.(scriptview.TrustBackend); supported {
+				doc, err = trust.TrustScriptFile(doc.Path, doc.Version, true)
+			}
 		}
 		if err == nil {
 			data, err = runner.RunScript(domain.ScriptRequest{Path: doc.Path, Serial: m.Serial, Python: m.Python, TimeoutSeconds: m.Timeout})
@@ -331,4 +354,9 @@ func (u *UI) closeScriptWeb() {
 		w.page.Close()
 		w.page = nil
 	}
+}
+
+func supportsScriptDependencies(backend domain.Backend) bool {
+	_, ok := backend.(domain.ScriptDependencyBackend)
+	return ok
 }

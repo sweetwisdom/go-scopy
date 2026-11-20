@@ -34,7 +34,26 @@ type ScriptRun struct {
 func (r ScriptRun) Active() bool { return r.Status == "running" || r.Status == "stopping" }
 
 type ScriptState struct {
-	Runs  []ScriptRun
-	Last  ScriptRequest
-	Error string
+	Dependencies *ScriptDependencies
+	Runs         []ScriptRun
+	Last         ScriptRequest
+	Error        string
+}
+
+// ScriptDependencyBackend is optional; installation only starts on an explicit
+// user action and always targets the same interpreter used by the runner.
+type ScriptDependencyBackend interface {
+	CheckScriptDependencies(python string) error
+	InstallScriptDependencies(python string) error
+	StopScriptDependencies()
+}
+
+type ScriptDependencies struct {
+	RequestedPython string `json:"requestedPython"`
+	Python          string `json:"python"`
+	Operation       string `json:"operation"`
+	Status          string `json:"status"`
+	Ready           bool   `json:"ready"`
+	Error           string `json:"error"`
+	Log             string `json:"log"`
 }

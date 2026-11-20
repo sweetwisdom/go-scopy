@@ -195,7 +195,7 @@ func build() error {
 			return err
 		}
 	}
-	for _, doc := range []string{"README.md", "README.zh-CN.md", "LICENSE", "THIRD_PARTY_NOTICES.md"} {
+	for _, doc := range []string{"README.md", "README.zh-CN.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md"} {
 		if err := copyFile(doc, filepath.Join(root, doc)); err != nil {
 			return err
 		}

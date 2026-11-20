@@ -37,14 +37,17 @@ type liveRun struct {
 }
 
 type Manager struct {
-	mu             sync.Mutex
-	root, dir, adb string
-	runs           []*liveRun
-	last           domain.ScriptRequest
-	problem        string
-	closed         bool
-	notify         func()
-	wg             sync.WaitGroup
+	mu                                       sync.Mutex
+	dependency                               *liveRun
+	dependencyRequested, dependencyOperation string
+	dependencyReady                          bool
+	root, dir, adb                           string
+	runs                                     []*liveRun
+	last                                     domain.ScriptRequest
+	problem                                  string
+	closed                                   bool
+	notify                                   func()
+	wg                                       sync.WaitGroup
 }
 
 func New(root, dataDir, adb string, notify func()) *Manager {
@@ -71,6 +74,12 @@ func (m *Manager) Snapshot() domain.ScriptState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := domain.ScriptState{Last: m.last, Error: m.problem}
+	if l := m.dependency; l != nil {
+		s.Dependencies = &domain.ScriptDependencies{RequestedPython: m.dependencyRequested,
+			Python: l.run.Request.Python, Operation: m.dependencyOperation,
+			Status: l.run.Status, Ready: m.dependencyReady, Error: l.run.Error,
+			Log: strings.ToValidUTF8(string(l.tail), "�")}
+	}
 	s.Last.Args = append([]string(nil), s.Last.Args...)
 	for _, l := range m.runs {
 		r := l.run
@@ -117,6 +126,10 @@ func (m *Manager) Start(req domain.ScriptRequest) (string, error) {
 	if m.closed {
 		m.mu.Unlock()
 		return "", errors.New("脚本运行器已关闭")
+	}
+	if m.dependency != nil && m.dependencyOperation == "install" && m.dependency.run.Active() {
+		m.mu.Unlock()
+		return "", errors.New("正在安装 Python 依赖，请完成或停止安装后再运行脚本")
 	}
 	for _, l := range m.runs {
 		if l.run.Active() && l.run.Request.Serial == req.Serial {
@@ -273,6 +286,10 @@ func (m *Manager) Stop(id string) {
 func (m *Manager) Close() {
 	m.mu.Lock()
 	m.closed = true
+	if m.dependency != nil && m.dependency.run.Active() {
+		m.dependency.run.Status = "stopping"
+		m.dependency.cancel()
+	}
 	for _, l := range m.runs {
 		if l.run.Active() {
 			l.run.Status = "stopping"

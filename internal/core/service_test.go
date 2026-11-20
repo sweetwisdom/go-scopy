@@ -23,6 +23,10 @@ func TestMain(m *testing.M) {
 	if os.Getenv("GOSCOPY_TOOL_HELPER") == "1" {
 		a := os.Args[1:]
 		joined := strings.Join(a, " ")
+		if mode := os.Getenv("GOSCOPY_APPS_HELPER"); mode != "" {
+			runAppsHelper(a, mode)
+			return
+		}
 		if os.Getenv("GOSCOPY_EXPORT_HELPER") != "" {
 			runExportHelper(a)
 			return

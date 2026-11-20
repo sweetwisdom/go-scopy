@@ -28,6 +28,7 @@ type Document struct {
 	File
 	Content string `json:"content"`
 	Version string `json:"version"`
+	Trusted bool   `json:"trusted"`
 }
 type Listing struct {
 	Directory string `json:"directory"`
@@ -37,6 +38,7 @@ type Store struct {
 	mu             sync.Mutex
 	root, registry string
 	opened         []string
+	trusted        map[string]string
 }
 
 func New(dataDir string) (*Store, error) {
@@ -54,6 +56,13 @@ func New(dataDir string) (*Store, error) {
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("读取脚本列表：%w", err)
+	}
+	// Corrupt/missing trust metadata fails closed, without hiding user files.
+	s.trusted = map[string]string{}
+	if data, e := os.ReadFile(filepath.Join(root, ".trusted.json")); e == nil {
+		if json.Unmarshal(data, &s.trusted) != nil || s.trusted == nil {
+			s.trusted = map[string]string{}
+		}
 	}
 	return s, nil
 }
@@ -139,6 +148,7 @@ func (s *Store) Open(path string) (Document, error) {
 		return d, err
 	}
 	d.External = !s.managed(path)
+	d.Trusted = s.trusted[trustPath(path)] == d.Version && d.Version != ""
 	if !s.allowed(path) {
 		if len(s.opened) >= 100 {
 			return d, errors.New("外部脚本列表已达 100 项，请将脚本放入默认脚本目录")
@@ -161,6 +171,7 @@ func (s *Store) Read(path string) (Document, error) {
 	}
 	d, err := read(path)
 	d.External = !s.managed(path)
+	d.Trusted = s.trusted[trustPath(path)] == d.Version && d.Version != ""
 	return d, err
 }
 func validContent(text string) error {
@@ -196,7 +207,9 @@ func (s *Store) Create(name, content string) (Document, error) {
 		os.Remove(path)
 		return Document{}, err
 	}
-	return read(path)
+	d, err := read(path)
+	d.Trusted = s.trusted[trustPath(path)] == d.Version && d.Version != ""
+	return d, err
 }
 func (s *Store) Save(path, content, version string) (Document, error) {
 	s.mu.Lock()
@@ -224,6 +237,7 @@ func (s *Store) Save(path, content, version string) (Document, error) {
 	}
 	d, err := read(path)
 	d.External = !s.managed(path)
+	d.Trusted = s.trusted[trustPath(path)] == d.Version && d.Version != ""
 	return d, err
 }
 func replace(path string, b []byte) error { return replaceMode(path, b, 0600) }
@@ -259,4 +273,49 @@ func (s *Store) Guide(content []byte) (string, error) {
 	}
 	path := filepath.Join(dir, "Python脚本开发指南.md")
 	return path, replace(path, content)
+}
+
+func trustPath(path string) string {
+	path = filepath.Clean(path)
+	if os.PathSeparator == '\\' {
+		path = strings.ToLower(path)
+	}
+	return path
+}
+
+// Trust remembers an explicit confirmation for one file and exact content hash.
+// Different files, external edits and new content never inherit permission.
+func (s *Store) Trust(path, version string, trusted bool) (Document, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path = filepath.Clean(path)
+	if !s.allowed(path) {
+		return Document{}, errors.New("请先打开此脚本")
+	}
+	doc, err := read(path)
+	if err != nil {
+		return doc, err
+	}
+	if version == "" || doc.Version != version {
+		return doc, errors.New("脚本已发生变化，请重新打开并确认信任")
+	}
+	next := make(map[string]string, len(s.trusted)+1)
+	for key, value := range s.trusted {
+		next[key] = value
+	}
+	if trusted {
+		next[trustPath(path)] = version
+	} else {
+		delete(next, trustPath(path))
+	}
+	data, err := json.MarshalIndent(next, "", "  ")
+	if err == nil {
+		err = replace(filepath.Join(s.root, ".trusted.json"), data)
+	}
+	if err != nil {
+		return doc, err
+	}
+	s.trusted = next
+	doc.External, doc.Trusted = !s.managed(path), trusted
+	return doc, nil
 }

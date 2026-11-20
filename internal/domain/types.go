@@ -156,8 +156,10 @@ type AppInfo struct {
 
 // AppListing is one installed-package read, cached in State for the apps tab.
 type AppListing struct {
-	Apps  []AppInfo
-	Error string
+	Apps       []AppInfo
+	Error      string
+	Cached     bool // A disk snapshot, pending an authoritative device refresh.
+	Refreshing bool
 }
 
 // AppMeta is the lazily resolved label and icon of one application.

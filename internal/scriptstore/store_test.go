@@ -126,3 +126,68 @@ func TestHelpIsRealMarkdownOutsideScriptList(t *testing.T) {
 		t.Fatal("guide leaked into script list")
 	}
 }
+
+func TestTrustPersistsForExactFileVersionAndCanBeRevoked(t *testing.T) {
+	dir := t.TempDir()
+	store, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := store.Create("trusted.py", "print('trusted')\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Trusted {
+		t.Fatal("new file trusted without consent")
+	}
+	doc, err = store.Trust(doc.Path, doc.Version, true)
+	if err != nil || !doc.Trusted {
+		t.Fatal("trust failed", err)
+	}
+	store, err = New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := store.Read(doc.Path)
+	if err != nil || !read.Trusted {
+		t.Fatal("trust not restored after restart", err)
+	}
+	other, err := store.Create("other.py", doc.Content)
+	if err != nil || other.Trusted {
+		t.Fatal("another path inherited trust", err)
+	}
+	changed, err := store.Save(doc.Path, "print('changed')\n", doc.Version)
+	if err != nil || changed.Trusted {
+		t.Fatal("changed file inherited trust", err)
+	}
+	if _, err := store.Trust(doc.Path, doc.Version, true); err == nil {
+		t.Fatal("stale revision trusted")
+	}
+	changed, err = store.Trust(changed.Path, changed.Version, true)
+	if err != nil || !changed.Trusted {
+		t.Fatal("new version not trusted", err)
+	}
+	changed, err = store.Trust(changed.Path, changed.Version, false)
+	if err != nil || changed.Trusted {
+		t.Fatal("revocation failed", err)
+	}
+	store, err = New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err = store.Read(doc.Path)
+	if err != nil || read.Trusted {
+		t.Fatal("revocation not persisted", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scripts", ".trusted.json"), []byte("broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err = New(dir)
+	if err != nil {
+		t.Fatal("bad trust metadata must not hide scripts", err)
+	}
+	read, err = store.Read(doc.Path)
+	if err != nil || read.Trusted {
+		t.Fatal("corrupt trust metadata did not fail closed", err)
+	}
+}

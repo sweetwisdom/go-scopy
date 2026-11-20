@@ -103,30 +103,34 @@ func (s *Service) FetchApps(serial string) {
 	s.fetch("apps:"+serial, func(ctx context.Context) {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		listing := domain.AppListing{}
-		apps, err := s.tool.ListApps(ctx, serial)
-		if err != nil {
-			listing.Error = err.Error()
-		} else {
-			listing.Apps = apps
-		}
+		key := s.appCacheDevice(ctx, serial)
 		s.mu.Lock()
-		if err == nil {
-			if s.state.AppMetas == nil {
-				s.state.AppMetas = map[string]domain.AppMeta{}
-			}
-			for _, app := range apps {
-				if app.Label != "" || len(app.IconPNG) > 0 {
-					s.state.AppMetas[serial+"\x00"+app.Package] = domain.AppMeta{Package: app.Package, Label: app.Label, IconPNG: app.IconPNG}
-				}
+		previous, exists := s.state.Apps[serial]
+		s.mu.Unlock()
+		if !exists || len(previous.Apps) == 0 {
+			if apps, err := s.loadAppCache(key); err == nil {
+				previous = domain.AppListing{Apps: apps, Cached: true}
 			}
 		}
-		if s.state.Apps == nil {
-			s.state.Apps = map[string]domain.AppListing{}
-		}
-		s.state.Apps[serial] = listing
+		previous.Refreshing, previous.Error = true, ""
+		s.mu.Lock()
+		s.setAppListing(serial, previous)
 		s.mu.Unlock()
 		s.wake()
+
+		apps, err := s.tool.ListApps(ctx, serial)
+		listing := domain.AppListing{Apps: apps}
+		if err != nil {
+			listing = previous
+			listing.Refreshing, listing.Error = false, err.Error()
+		}
+		s.mu.Lock()
+		s.setAppListing(serial, listing)
+		s.mu.Unlock()
+		s.wake()
+		if err == nil {
+			_ = s.saveAppCache(key, apps)
+		}
 	})
 }
 

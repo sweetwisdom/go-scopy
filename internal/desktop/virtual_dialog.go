@@ -153,7 +153,7 @@ func (u *UI) virtualDisplayCard(f *flex.Frame) {
 	})
 }
 
-// launchVirtualDialog starts the virtual session beside its island window.
+// launchVirtualDialog starts an independent app window without an island.
 func (u *UI) launchVirtualDialog() {
 	width, _ := strconv.Atoi(strings.TrimSpace(u.vd.width.Text()))
 	height, _ := strconv.Atoi(strings.TrimSpace(u.vd.height.Text()))

@@ -57,3 +57,26 @@ func (s *Service) closeScripts() {
 }
 
 var _ domain.ScriptBackend = (*Service)(nil)
+
+func (s *Service) CheckScriptDependencies(python string) error {
+	m, err := s.scriptManager()
+	if err != nil {
+		return err
+	}
+	return m.Dependencies(python, false)
+}
+func (s *Service) InstallScriptDependencies(python string) error {
+	m, err := s.scriptManager()
+	if err != nil {
+		return err
+	}
+	return m.Dependencies(python, true)
+}
+func (s *Service) StopScriptDependencies() {
+	m, err := s.scriptManager()
+	if err == nil {
+		m.StopDependencies()
+	}
+}
+
+var _ domain.ScriptDependencyBackend = (*Service)(nil)

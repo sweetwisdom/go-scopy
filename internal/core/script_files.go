@@ -70,3 +70,13 @@ func (s *Service) ScriptGuide() (string, error) {
 	}
 	return f.Guide(scriptview.Guide())
 }
+
+func (s *Service) TrustScriptFile(path, version string, trusted bool) (scriptstore.Document, error) {
+	f, err := s.scriptFiles()
+	if err != nil {
+		return scriptstore.Document{}, err
+	}
+	return f.Trust(path, version, trusted)
+}
+
+var _ scriptview.TrustBackend = (*Service)(nil)

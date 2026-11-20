@@ -1,4 +1,4 @@
-param([string]$Version = '0.1.8', [switch]$SkipChecks, [switch]$Installer, [string]$MakeNSIS = 'makensis')
+param([string]$Version = '0.1.9', [switch]$SkipChecks, [switch]$Installer, [string]$MakeNSIS = 'makensis')
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $taskRoot

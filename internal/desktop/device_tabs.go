@@ -50,6 +50,11 @@ func (u *UI) deviceHeading(f *flex.Frame, d domain.Device) {
 			if f.Button(u.id("open-virtual"), "虚拟屏幕").Small().Outline().Disabled(!ready).Clicked() {
 				u.openVirtualDialog(d.Serial)
 			}
+			if d.Connection == "USB" {
+				if f.Button(u.id("tcp"), "切换无线").Small().Outline().Disabled(!ready).Clicked() {
+					u.backend.EnableTCP(d.Serial)
+				}
+			}
 		})
 	})
 }

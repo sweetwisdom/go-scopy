@@ -759,11 +759,7 @@ func (u *UI) deviceSettings(f *flex.Frame, d domain.Device) {
 			if f.Button(u.id("install"), "安装 APK").Outline().Disabled(!ready).Clicked() {
 				u.dialog("apk")
 			}
-			if d.Connection == "USB" {
-				if f.Button(u.id("tcp"), "切换无线").Outline().Disabled(!ready).Clicked() {
-					u.backend.EnableTCP(u.selected)
-				}
-			} else {
+			if d.Connection != "USB" {
 				if f.Button(u.id("reconnect-device"), "连接设备").Outline().Disabled(ready || hasSession).Clicked() {
 					u.backend.Connect(d.Serial)
 				}

@@ -39,4 +39,8 @@ The chosen interpreter must already provide uiautomator2 3.7.1 and the locked de
 
 ## Boundaries
 
-Python files are not sandboxed. Trust is cleared after editing; target devices must be explicitly chosen and online at execution. Runs continue across page changes. Unsaved edits warn on file switching and normal application exit; they are not a crash-recovery database. Supplementary `d.` completions are labeled static presets, not type inference. Large documents over 1 MiB and non-UTF-8 content are rejected. No rename/delete/batch-device execution is included in this first iteration.
+Python files are not sandboxed. Trust is persisted by canonical file path and exact SHA-256 revision, is revocable, and is cleared after editing; target devices must be explicitly chosen and online at execution. Runs continue across page changes. Unsaved edits warn on file switching and normal application exit; they are not a crash-recovery database. Supplementary `d.` completions are labeled static presets, not type inference. Large documents over 1 MiB and non-UTF-8 content are rejected. No rename/delete/batch-device execution is included in this first iteration.
+
+## Python environment actions
+
+The optional `domain.ScriptDependencyBackend` checks the selected interpreter asynchronously against the bundled requirements lock. Installation only starts after an explicit button click and confirmation, using that interpreter's `-m pip install --require-hashes` and the Tsinghua index. It reuses the runner's process-tree cancellation and bounded output writer. No system Python bootstrap, elevation, alternate index, or hash bypass is attempted. Installation and script execution are mutually exclusive. A successful pip exit is followed by a dependency/import check before marking the environment ready.

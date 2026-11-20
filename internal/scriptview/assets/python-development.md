@@ -9,11 +9,13 @@
 应用不附带 Python 解释器和第三方依赖，也不会在点击「运行」时自动下载或安装。
 
 1. 安装 Python 并加入 PATH，或在工作台「运行设置」中选择已有解释器。优先使用你已有的、支持锁定依赖的环境。
-2. 在**发行包根目录的电脑终端**中运行（不要在 Android Shell 中运行）：
+2. 打开工作台后会检查所选解释器的锁定依赖。若缺失或版本不匹配，点击 **安装依赖**，确认目标解释器后安装。安装使用清华 PyPI 镜像和 `--require-hashes`，在「环境详情与安装输出」中显示进度；可停止，不会自动提权或更换 Python。安装中禁止启动脚本，已有脚本运行时也不能安装。
+
+   也可在**发行包根目录的电脑终端**中手动运行（不要在 Android Shell 中运行）：
 
    ```powershell
    python --version
-   python -m pip install --require-hashes -r tools/python/requirements.lock
+   python -m pip install --require-hashes -r tools/python/requirements.lock -i https://pypi.tuna.tsinghua.edu.cn/simple
    python -c "import importlib.metadata as m; print(m.version('uiautomator2'))"
    ```
 
@@ -22,10 +24,11 @@
 
    ```powershell
    # 示例：替换为你自己的解释器路径。
-   & "C:\path\to\venv\Scripts\python.exe" -m pip install --require-hashes -r tools/python/requirements.lock
+   & "C:\path\to\venv\Scripts\python.exe" -m pip install --require-hashes -r tools/python/requirements.lock -i https://pypi.tuna.tsinghua.edu.cn/simple
    ```
 
    不要把上述示例路径直接复制到运行设置；请选择真实存在的可执行文件。
+   如果提示 `No module named pip`，请先为该解释器准备 pip；应用不会自动安装 Python 或引导系统 pip。安装失败保留输出供排查，不会绕过哈希校验或静默换源。取消安装不会回滚已经安装的依赖。
 4. 连接手机，开启 USB 调试并授权。工作台设备下拉框只显示已连接、已授权设备。无线设备须先在设备页连接。
 
 解释器选择顺序：运行设置中的手动路径 > `GOSCRCPY_PYTHON` 环境变量 > PATH。Windows 默认寻找 `python`，其他平台默认 `python3`，找不到时尝试另一命令。旧版本遗留的便携 runtime 不会被自动选用。
@@ -38,7 +41,7 @@
 - **打开 .py**：通过系统文件选择器打开已有本地脚本，**原位保存，不会复制到默认文件夹**。外部脚本路径会保留在列表中。
 - `Ctrl+S` 保存到真实的 UTF-8 本地文件；文件名后的「未保存」标记表示编辑尚未落盘。切换文件会提示保存、不保存或取消。
 - 如果磁盘文件被其他编辑器修改，保存会报冲突而不是覆盖。请先复制备份当前编辑内容，再重新打开磁盘版本进行合并。
-- 选择 **目标设备**，阅读并勾选「我信任此脚本」，点击 **运行**。有未保存修改时先保存，再执行；再次编辑会清除信任勾选。
+- 选择 **目标设备**，阅读并勾选「我信任此版本」，点击 **运行**。信任按文件路径和内容哈希保存在本地，未修改的版本切换文件或重启应用后无需重复确认；可取消勾选撤销。编辑或外部修改后不沿用旧版本信任。有未保存修改时先保存，再执行。
 - 下方 **运行输出** 显示 stdout、stderr、状态和退出码；执行记录可以切换。**停止** 会终止该次本机脚本进程树；**日志与产物** 打开该次运行目录。
 - **开发指南 ↗** 将本指南导出到本机帮助目录，调用系统默认 Markdown 关联打开。未设置 `.md` 关联时，请在系统中选择 Markdown 阅读器、编辑器或记事本后重试；应用不安装额外阅读器。
 

@@ -3,6 +3,8 @@ package desktop
 import (
 	"bytes"
 	"hash/fnv"
+	"image"
+	"image/draw"
 	"image/png"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 
 // appsState is the app-packages tab's own view state.
 type appsState struct {
+	bitmaps         appBitmapCache
 	search          flex.Field
 	filter          string // "all" | "user" | "system"
 	selected        map[string]bool
@@ -152,7 +155,17 @@ func (u *UI) devicePackages(f *flex.Frame, d domain.Device) {
 
 	u.card(f, func() {
 		if listing.Error != "" {
-			u.small(f, "读取应用列表失败："+listing.Error)
+			u.small(f, "刷新应用列表失败："+listing.Error)
+		}
+		if listing.Cached {
+			message := "当前显示本地缓存，应用信息可能已变化。"
+			if listing.Refreshing {
+				message = "已显示本地缓存，正在后台刷新应用信息…"
+			}
+			u.small(f, message)
+		}
+		if listing.Refreshing && len(apps) == 0 {
+			u.small(f, "正在读取应用列表…")
 			return
 		}
 		if len(apps) == 0 {
@@ -193,7 +206,7 @@ func (u *UI) appRow(f *flex.Frame, d domain.Device, a domain.AppInfo) {
 		if len(icon) == 0 {
 			icon = a.IconPNG
 		}
-		if bmp, ok := appIconBitmap(a.Package, icon); ok {
+		if bmp, ok := u.apps.bitmaps.bitmap(d.Serial+"\x00"+a.Package, icon); ok {
 			f.Image(bmp).Size(34, 34).Radius(8)
 		} else {
 			f.Stack().Size(34, 34).Radius(8).Background(u.c.selected).Center().Children(func() {
@@ -311,6 +324,10 @@ func appIconBitmap(pkg string, data []byte) (ui.Bitmap, bool) {
 	if len(data) == 0 {
 		return ui.Bitmap{}, false
 	}
+	config, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil || config.Width <= 0 || config.Height <= 0 || config.Width > 2048 || config.Height > 2048 || len(data) > 4<<20 {
+		return ui.Bitmap{}, false
+	}
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
 		return ui.Bitmap{}, false
@@ -320,16 +337,28 @@ func appIconBitmap(pkg string, data []byte) (ui.Bitmap, bool) {
 	if w == 0 || h == 0 {
 		return ui.Bitmap{}, false
 	}
+	rgba, ok := img.(*image.RGBA)
+	if !ok {
+		rgba = image.NewRGBA(bounds)
+		draw.Draw(rgba, bounds, img, bounds.Min, draw.Src)
+	}
+	// The row displays 34 logical pixels. Bound retained pixels for high-DPI
+	// rendering instead of keeping full-resolution (sometimes 1024px) icons.
+	if largest := max(w, h); largest > 96 {
+		w, h = max(1, w*96/largest), max(1, h*96/largest)
+	}
 	pix := make([]byte, w*h*4)
 	i := 0
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			r, g, b, a := img.At(x, y).RGBA()
-			// RGBA() already returns premultiplied channels; do not multiply again.
-			pix[i] = byte(b >> 8)
-			pix[i+1] = byte(g >> 8)
-			pix[i+2] = byte(r >> 8)
-			pix[i+3] = byte(a >> 8)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			sx := bounds.Min.X + x*bounds.Dx()/w
+			sy := bounds.Min.Y + y*bounds.Dy()/h
+			source := rgba.PixOffset(sx, sy)
+			// image.RGBA channels are already premultiplied; convert RGBA to BGRA.
+			pix[i] = rgba.Pix[source+2]
+			pix[i+1] = rgba.Pix[source+1]
+			pix[i+2] = rgba.Pix[source]
+			pix[i+3] = rgba.Pix[source+3]
 			i += 4
 		}
 	}

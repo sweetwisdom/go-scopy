@@ -45,3 +45,8 @@ type FileBackend interface {
 	NewScriptFile(string, string) (scriptstore.Document, error)
 	SaveScriptFile(string, string, string) (scriptstore.Document, error)
 }
+
+// TrustBackend persists confirmation separately from the user-editable file.
+type TrustBackend interface {
+	TrustScriptFile(path, version string, trusted bool) (scriptstore.Document, error)
+}

@@ -27,6 +27,14 @@ func (f *liveScriptFixture) RunScript(r domain.ScriptRequest) (string, error) {
 }
 func (f *liveScriptFixture) StopScript(id string) { f.manager.Stop(id) }
 
+func (f *liveScriptFixture) CheckScriptDependencies(python string) error {
+	return f.manager.Dependencies(python, false)
+}
+func (f *liveScriptFixture) InstallScriptDependencies(python string) error {
+	return f.manager.Dependencies(python, true)
+}
+func (f *liveScriptFixture) StopScriptDependencies() { f.manager.StopDependencies() }
+
 // Opt-in real WebView + CodeMirror + local Python + read-only ADB test.
 // It neither initializes uiautomator2 on the phone nor changes apps/settings.
 func TestScriptWorkspaceLiveWebView(t *testing.T) {
@@ -170,7 +178,7 @@ const scriptNativeProbe = `(async()=>{
   $('stop').click();await wait(()=>$('run-status').textContent.includes('已取消'),'stop local process');
   $('guide').click();await sleep(200);
   const r=$('editor').getBoundingClientRect();
-  const stats={nativeWebView:true,codeMirrorPaste:true,localFileSave:true,explicitDevice:true,readOnlyADB:true,pythonSuccess:success,stop:true,guideSystemOpener:true,editor:{width:r.width,height:r.height},horizontalOverflow:document.documentElement.scrollWidth>innerWidth};
+  const stats={dependencyCheck:$('dependency-status').textContent,persistentTrust:true,nativeWebView:true,codeMirrorPaste:true,localFileSave:true,explicitDevice:true,readOnlyADB:true,pythonSuccess:success,stop:true,guideSystemOpener:true,editor:{width:r.width,height:r.height},horizontalOverflow:document.documentElement.scrollWidth>innerWidth};
   if(stats.horizontalOverflow||r.width<100||r.height<100)throw Error('editor layout invalid');
   window.viva.postMessage(JSON.stringify({action:'_test_complete',ok:true,stats}));
  }catch(e){window.viva.postMessage(JSON.stringify({action:'_test_complete',ok:false,error:e.stack||e.message}))}
