@@ -97,6 +97,7 @@ type VirtualDisplay struct {
 	DestroyOnClose     bool // default false: content moves to the main screen
 	IMEPolicy          string
 	StartApp           string // package name; required
+	ReturnHome         bool   // shortcut: return display 0 home only after this app is resumed on a secondary display
 }
 
 // PhoneInfo is the device overview page's snapshot of one phone.
@@ -259,8 +260,20 @@ type SessionHost interface {
 	Finished(error)
 }
 
+// ReadySessionHost optionally receives readiness after Attach and any app
+// handoff have completed, so controls cannot restart an unfinished launch.
+type ReadySessionHost interface {
+	Ready()
+}
+
 // HostedBackend runs scrcpy beside an island control window.
 type HostedBackend interface {
 	StartHosted(serial, session string, options Options, display *VirtualDisplay, record bool, host SessionHost)
 	Key(serial, action string)
+}
+
+// ForegroundBackend resolves the main display's foreground app off the UI thread.
+// The callback is called exactly once and must not access UI state directly.
+type ForegroundBackend interface {
+	ResolveForeground(serial string, done func(string, error))
 }

@@ -22,7 +22,7 @@ A simple Android screen mirroring and control app for Windows, macOS, and Linux.
 - **USB or Wi-Fi** — Connect over USB, pair wirelessly, or switch from USB to Wi-Fi. Save wireless devices for easy connection and disconnection.
 - **Make devices your own** — Rename devices and add, edit, or remove saved wireless addresses. Keep saved devices in your list even when they are offline.
 - **Record and capture** — Record your screen, save screenshots, enable audio forwarding when needed, and choose where your captures are stored.
-- **An island for your controls** — On Windows, a compact floating capsule expands into phone controls. Drag it freely and snap it to a screen edge, while your scrcpy window stays independent.
+- **An island for your controls** — On Windows, a compact floating capsule expands into phone controls. Drag it freely and snap it to a screen edge, while your scrcpy window stays independent. Open the main screen's foreground app in its own virtual-display window, then return the original mirror to the launcher. Start or stop recording from the island (switching restarts the session).
 - **Preferences for each device** — Tune resolution limits, frame rate, bitrate, audio, and always-on-top behavior. Save settings per device or as your defaults.
 - **Web file workspace** — Browse in list or grid view, select multiple items, navigate paths, and track file operations. Preview images, UTF-8 text/code, and media supported by your system WebView; the native file page remains a fallback.
 - **Multiple virtual app windows** — Launch separate virtual displays for different apps on one device, alongside ordinary mirroring. Manage each session independently; repeated launches of the same app remain subject to Android task and multi-display support.

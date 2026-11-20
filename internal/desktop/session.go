@@ -35,6 +35,10 @@ type sessionWindow struct {
 	ready, ended, closing         bool
 	disposed, collapsed, dragging bool
 	recording, restart, screenOff bool
+	resolving, foregroundDone     bool
+	foregroundPackage             string
+	foregroundErr, finishErr      error
+	islandMessage                 string
 }
 
 func (u *UI) SetApplication(application *app.Application) { u.application = application }
@@ -98,18 +102,17 @@ func (u *UI) openSessionWindow(serial string, kind domain.SessionKind, display *
 
 func (s *sessionWindow) Done() <-chan struct{} { return s.ctx.Done() }
 func (s *sessionWindow) Attach(ctx context.Context, pid int) error {
-	if err := s.native.Attach(ctx, pid); err != nil {
-		return err
-	}
+	return s.native.Attach(ctx, pid)
+}
+func (s *sessionWindow) Ready() {
 	s.mu.Lock()
 	s.attached = true
 	s.mu.Unlock()
 	s.wake.Invalidate()
-	return nil
 }
-func (s *sessionWindow) Finished(_ error) {
+func (s *sessionWindow) Finished(err error) {
 	s.mu.Lock()
-	s.finished = true
+	s.finished, s.finishErr = true, err
 	s.mu.Unlock()
 	s.wake.Invalidate()
 }
@@ -118,14 +121,34 @@ func (s *sessionWindow) onWake() {
 		return
 	}
 	s.mu.Lock()
-	attached, finished := s.attached, s.finished
+	attached, finished, finishErr := s.attached, s.finished, s.finishErr
+	resolved, pkg, foregroundErr := s.foregroundDone, s.foregroundPackage, s.foregroundErr
+	s.foregroundDone = false
 	s.mu.Unlock()
 	if finished {
+		if finishErr != nil {
+			s.restart = false
+		}
 		s.ended, s.ready = true, false
 		s.destroy()
 		return
 	}
+	if resolved && !s.closing {
+		s.resolving = false
+		if foregroundErr != nil {
+			s.islandMessage = "操作失败，详情见主窗口任务中心"
+			s.owner.notice = foregroundErr.Error()
+			s.owner.wake.Invalidate()
+		} else {
+			s.islandMessage = ""
+			s.launchIndependentApp(pkg)
+		}
+	}
 	if attached && !s.ready {
+		// ReturnHome is a one-shot shortcut, not a recording/keyboard restart option.
+		if s.display != nil {
+			s.display.ReturnHome = false
+		}
 		s.ready = true
 		s.native.Focus()
 	}
@@ -164,7 +187,7 @@ func (s *sessionWindow) destroy() {
 	if s.window != nil {
 		s.window.Close()
 	}
-	// A keyboard-mode change reopens the session with the new setting once
+	// A keyboard/recording change reopens the session with the new setting once
 	// the old scrcpy has exited and any recording is safely flushed.
 	if s.restart {
 		s.restart = false
@@ -173,6 +196,7 @@ func (s *sessionWindow) destroy() {
 }
 func (u *UI) closeSessionWindows() {
 	for _, s := range u.sessionWindows {
+		s.restart = false
 		s.requestClose()
 	}
 }

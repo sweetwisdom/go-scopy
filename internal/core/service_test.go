@@ -27,6 +27,10 @@ func TestMain(m *testing.M) {
 			runExportHelper(a)
 			return
 		}
+		if os.Getenv("GOSCOPY_FOREGROUND_HELPER") != "" && strings.Contains(joined, "shell ") {
+			runForegroundHelper(a)
+			return
+		}
 		if mode := os.Getenv("GOSCOPY_PHONEINFO_HELPER"); mode != "" && strings.Contains(joined, "shell ") {
 			if mode == "fail" {
 				fmt.Fprintln(os.Stderr, "offline")

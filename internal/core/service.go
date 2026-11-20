@@ -473,6 +473,15 @@ func (s *Service) start(serial, session string, kind domain.SessionKind, options
 		if err = ctx.Err(); err != nil {
 			return "", path, err
 		}
+		var existingDisplays map[int]bool
+		if display != nil && display.ReturnHome {
+			readCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+			existingDisplays, err = s.tool.DisplayIDs(readCtx, serial)
+			cancel()
+			if err != nil {
+				return "", path, err
+			}
+		}
 		p, err := s.tool.Start(serial, options, display, path)
 		if err != nil {
 			if path != "" {
@@ -503,6 +512,25 @@ func (s *Service) start(serial, session string, kind domain.SessionKind, options
 				stopProcess(p)
 				return "", path, fmt.Errorf("投屏窗口未就绪：%w", err)
 			}
+		}
+		if display != nil && display.ReturnHome {
+			handoffCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+			go func() {
+				select {
+				case <-p.Done:
+					cancel()
+				case <-handoffCtx.Done():
+				}
+			}()
+			err = s.tool.ReturnHomeAfterApp(handoffCtx, serial, display.StartApp, existingDisplays)
+			cancel()
+			if err != nil {
+				stopProcess(p)
+				return "", path, err
+			}
+		}
+		if ready, ok := host.(domain.ReadySessionHost); ok {
+			ready.Ready()
 		}
 		if closed {
 			stopProcess(p)

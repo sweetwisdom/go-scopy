@@ -23,6 +23,13 @@ func runSessionHelper() {
 	if err := os.WriteFile(filepath.Join(dir, pid+".json"), data, 0600); err != nil {
 		os.Exit(2)
 	}
+	for i, arg := range os.Args {
+		if arg == "--record" && i+1 < len(os.Args) {
+			if err := os.WriteFile(os.Args[i+1], []byte("helper recording payload"), 0600); err != nil {
+				os.Exit(2)
+			}
+		}
+	}
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(filepath.Join(dir, pid+".stop")); err == nil {
@@ -178,3 +185,53 @@ type readyHost struct{ finished chan error }
 func (*readyHost) Attach(_ context.Context, _ int) error { return nil }
 func (*readyHost) Done() <-chan struct{}                 { return nil }
 func (h *readyHost) Finished(err error)                  { h.finished <- err }
+
+func TestRecordingSessionFlushesBeforeNonRecordingSessionStarts(t *testing.T) {
+	s := testService(t)
+	dir := t.TempDir()
+	t.Setenv("GOSCOPY_SESSION_HELPER_DIR", dir)
+	t.Cleanup(func() {
+		s.mu.Lock()
+		for _, p := range s.processes {
+			_ = os.WriteFile(filepath.Join(dir, strconv.Itoa(p.Cmd.Process.Pid)+".stop"), nil, 0600)
+		}
+		s.mu.Unlock()
+		s.Close()
+	})
+	id := domain.SessionID("test-serial", domain.SessionMirror)
+	options := s.State().Settings.Defaults
+	host := &readyHost{finished: make(chan error, 1)}
+	s.StartHosted("test-serial", id, options, nil, true, host)
+	first := waitSessions(t, s, 1)[id]
+	if first.Recording == "" {
+		t.Fatal("recording path not published")
+	}
+	s.mu.Lock()
+	pid := s.processes[id].Cmd.Process.Pid
+	s.mu.Unlock()
+	if err := os.WriteFile(filepath.Join(dir, strconv.Itoa(pid)+".stop"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-host.finished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("recording did not finish")
+	}
+	data, err := os.ReadFile(first.Recording)
+	if err != nil || len(data) == 0 {
+		t.Fatalf("recording was not saved: %v", err)
+	}
+	next := &readyHost{finished: make(chan error, 1)}
+	s.StartHosted("test-serial", id, options, nil, false, next)
+	second := waitSessions(t, s, 1)[id]
+	if second.Recording != "" {
+		t.Fatal("non-recording restart is still recording")
+	}
+	after, err := os.ReadFile(first.Recording)
+	if err != nil || string(after) != string(data) {
+		t.Fatal("restart changed the saved recording")
+	}
+}

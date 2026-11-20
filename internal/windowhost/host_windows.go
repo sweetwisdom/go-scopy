@@ -169,7 +169,7 @@ func (h *Host) Dock(collapsed bool) {
 	dpi := dpiOf(h.dock)
 	w, height := int32(236), int32(48)
 	if !collapsed {
-		w, height = 344, 368
+		w, height = 344, 440
 	}
 	w, height = scaled(w, dpi), scaled(height, dpi)
 	var current rect

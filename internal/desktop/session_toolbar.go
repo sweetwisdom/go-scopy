@@ -119,24 +119,44 @@ func (s *sessionWindow) paintTools(canvas *ui.Canvas, size ui.Size) {
 			s.native.Focus()
 		}
 	}
+	_, canResolve := s.owner.backend.(domain.ForegroundBackend)
+	independentLabel := "独立窗口"
+	if s.resolving {
+		independentLabel = "正在识别…"
+	}
+	if s.islandButton(canvas, "independent-app", independentLabel, "", ui.Rect{X: 16, Y: 238, Width: 150, Height: 38}, !s.ready || s.closing || s.resolving || s.kind == domain.SessionVirtual || !canResolve, false) {
+		s.detachCurrentApp()
+	}
+	recordLabel := "开始录屏"
+	if s.recording {
+		recordLabel = "停止录屏"
+	}
+	if s.islandButton(canvas, "toggle-recording", recordLabel, "", ui.Rect{X: 174, Y: 238, Width: 154, Height: 38}, !s.ready || s.closing || s.resolving, s.recording) {
+		s.toggleRecording()
+	}
+	message := "切换录屏将重启投屏，虚拟屏应用可能重启"
+	if s.islandMessage != "" {
+		message = s.islandMessage
+	}
+	canvas.Label(message, ui.Rect{X: 20, Y: 280, Width: size.Width - 40, Height: 20}, ui.TextStyle{Size: 10, Color: muted})
 	// The two session toggles: keyboard injection mode and privacy screen.
 	keyboardLabel, keyboardState := "模拟实体键盘", "SDK 注入模式"
 	if s.options.Keyboard == domain.KeyboardUHID {
 		keyboardState = "UHID 实体键盘"
 	}
-	if s.islandToggle(canvas, "keyboard-mode", keyboardLabel, keyboardState, ui.Rect{X: 16, Y: 238, Width: size.Width - 32, Height: 38}, s.closing) {
+	if s.islandToggle(canvas, "keyboard-mode", keyboardLabel, keyboardState, ui.Rect{X: 16, Y: 304, Width: size.Width - 32, Height: 38}, s.closing) {
 		s.toggleKeyboard()
 	}
 	privacyLabel, privacyState := "隐私模式", "屏幕开启"
 	if s.screenOff {
 		privacyState = "屏幕已关闭"
 	}
-	if s.islandToggle(canvas, "privacy-mode", privacyLabel, privacyState, ui.Rect{X: 16, Y: 282, Width: size.Width - 32, Height: 38}, s.closing || !s.ready) {
+	if s.islandToggle(canvas, "privacy-mode", privacyLabel, privacyState, ui.Rect{X: 16, Y: 348, Width: size.Width - 32, Height: 38}, s.closing || !s.ready) {
 		s.togglePrivacy()
 	}
 
-	canvas.Label("拖动左侧短线 · 靠近屏幕边缘吸附", ui.Rect{X: 20, Y: 328, Width: 234, Height: 24}, ui.TextStyle{Size: 10, Color: muted})
-	if s.islandButton(canvas, "close-session", "结束", "", ui.Rect{X: size.Width - 74, Y: 325, Width: 58, Height: 28}, s.closing, true) {
+	canvas.Label("拖动左侧短线 · 靠近屏幕边缘吸附", ui.Rect{X: 20, Y: 400, Width: 234, Height: 24}, ui.TextStyle{Size: 10, Color: muted})
+	if s.islandButton(canvas, "close-session", "结束", "", ui.Rect{X: size.Width - 74, Y: 397, Width: 58, Height: 28}, s.closing, true) {
 		s.requestClose()
 	}
 }
@@ -215,4 +235,46 @@ func (s *sessionWindow) islandButton(canvas *ui.Canvas, key, label, symbol strin
 		canvas.LabelCenter(label, bounds, ui.TextStyle{Size: 11, Color: color})
 	}
 	return !disabled && canvas.Clicked(id)
+}
+
+// detachCurrentApp never performs ADB I/O on the UI thread. Results are consumed
+// by onWake, and late completions cannot reopen a closed session.
+func (s *sessionWindow) detachCurrentApp() {
+	backend, ok := s.owner.backend.(domain.ForegroundBackend)
+	if !ok || !s.ready || s.closing || s.resolving || s.kind == domain.SessionVirtual {
+		return
+	}
+	s.resolving = true
+	s.islandMessage = "正在获取主屏前台应用…"
+	backend.ResolveForeground(s.serial, func(pkg string, err error) {
+		s.mu.Lock()
+		s.foregroundPackage, s.foregroundErr, s.foregroundDone = pkg, err, true
+		s.mu.Unlock()
+		s.wake.Invalidate()
+	})
+	s.wake.Invalidate()
+}
+
+func (s *sessionWindow) launchIndependentApp(pkg string) {
+	if pkg == "" {
+		return
+	}
+	display := domain.VirtualDisplay{
+		Width: 1080, Height: 2400, DPI: 420, SystemDecorations: true,
+		StartApp: pkg, ReturnHome: true,
+	}
+	if !s.owner.openSessionWindow(s.serial, domain.SessionVirtual, &display, s.options, false) {
+		s.owner.backend.StartVirtual(s.serial, s.options, display, false)
+	}
+}
+
+// Recording is a scrcpy startup option. Use the existing graceful restart path
+// so stopping first flushes the old MP4, then resumes a non-recording session.
+func (s *sessionWindow) toggleRecording() {
+	if !s.ready || s.closing || s.resolving {
+		return
+	}
+	s.recording = !s.recording
+	s.restart = true
+	s.requestClose()
 }
