@@ -9,3 +9,6 @@
 /resources/python/runtime.json
 /resources/python/runtime.json.tmp
 __pycache__/
+
+# Exclude the user-provided JAR from source and release history
+/resources/extra/common/panda-kit.jar
