@@ -12,3 +12,6 @@ __pycache__/
 
 # Exclude the user-provided JAR from source and release history
 /resources/extra/common/panda-kit.jar
+
+# Keep local Markdown documentation out of Git
+/docs/*.md
