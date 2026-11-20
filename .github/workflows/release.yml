@@ -10,6 +10,11 @@ on:
         required: true
         default: '0.1.10'
         type: string
+      publish:
+        description: Publish a release (requires a version tag on this commit)
+        required: true
+        default: false
+        type: boolean
 permissions:
   contents: read
 concurrency:
@@ -43,17 +48,21 @@ jobs:
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk libudev1 dpkg-dev binutils
-      - name: Build native release and check bundled tools
-        env:
-          PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
+      - name: Validate native architecture and Go modules
         run: |
           test "$(go env GOARCH)" = '${{ matrix.arch }}'
           go mod download
           git diff --exit-code -- go.mod go.sum
-          go test ./...
-          go vet ./...
-          python3 -m unittest discover -s scripts -p "test_*.py"
-          go run ./cmd/package --version "${PACKAGE_VERSION#v}" --commit "$GITHUB_SHA"
+      - name: Run Go tests
+        run: go test ./...
+      - name: Run Go vet
+        run: go vet ./...
+      - name: Test release verification scripts
+        run: python3 -m unittest discover -s scripts -p "test_*.py"
+      - name: Build native release and check bundled tools
+        env:
+          PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: go run ./cmd/package --version "${PACKAGE_VERSION#v}" --commit "$GITHUB_SHA"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Go-Scopy-${{ matrix.os }}-${{ matrix.arch }}
@@ -67,6 +76,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   release:
+    if: github.event_name == 'push' || inputs.publish
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -76,6 +86,8 @@ jobs:
       SOURCE_COMMIT: ${{ github.sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: Go-Scopy-*
@@ -88,4 +100,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${PACKAGE_VERSION#v}"
+          test "$(git rev-parse "v$version^{commit}")" = "$SOURCE_COMMIT"
           gh release create "v$version" release/*.zip release/*.tar.gz release/*.dmg release/*.deb release/*.sha256 release/SHA256SUMS --target "$SOURCE_COMMIT" --title "Go-Scopy v$version" --notes-file release/RELEASE_NOTES.md

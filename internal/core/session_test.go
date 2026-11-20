@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,6 +18,10 @@ import (
 // Each real helper subprocess has its own stop marker, so stopping a session
 // can be verified without real scrcpy windows or modifying a user's device.
 func runSessionHelper() {
+	// Unix stops real scrcpy with SIGINT; Windows posts WM_CLOSE (our helper
+	// has no windows). Keep this fixture alive until its explicit stop marker
+	// on every platform so the test can reliably observe the stopping state.
+	signal.Ignore(os.Interrupt)
 	dir := os.Getenv("GOSCOPY_SESSION_HELPER_DIR")
 	pid := strconv.Itoa(os.Getpid())
 	data, _ := json.Marshal(os.Args[1:])
