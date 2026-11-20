@@ -11,7 +11,7 @@ import (
 	"github.com/go-scopy/go-scopy/internal/tools"
 )
 
-// Opt-in: open a real device PTY and print only our marker; no files, apps or
+// Opt-in: open a real device shell and print only our marker; no files, apps or
 // settings are changed, and no device output is logged.
 func TestLiveDeviceTerminalRead(t *testing.T) {
 	adb, serial := os.Getenv("GOSCOPY_LIVE_ADB"), os.Getenv("GOSCOPY_LIVE_SERIAL")
@@ -27,8 +27,9 @@ func TestLiveDeviceTerminalRead(t *testing.T) {
 	}
 	t.Cleanup(stream.Close)
 	stream.Resize(100, 30)
-	if !stream.Write([]byte("printf 'GOSCOPY_%s\\n' SHELL_OK; exit\r")) {
-		t.Fatal("PTY refused input")
+	// The pipe-based provider needs a line feed (not a local ConPTY CR).
+	if !stream.Write([]byte("printf 'GOSCOPY_%s\\n' SHELL_OK; exit\r\n")) {
+		t.Fatal("shell refused input")
 	}
 	deadline := time.Now().Add(12 * time.Second)
 	var output []byte
@@ -48,5 +49,5 @@ func TestLiveDeviceTerminalRead(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatal("read-only device PTY did not return its marker")
+	t.Fatal("read-only device shell did not return its marker")
 }

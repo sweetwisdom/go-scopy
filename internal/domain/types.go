@@ -48,6 +48,7 @@ type Settings struct {
 	ADBPath       string             `json:"adbPath,omitempty"`
 	ScrcpyPath    string             `json:"scrcpyPath,omitempty"`
 	OutputDir     string             `json:"outputDir"`
+	AppExportDir  string             `json:"appExportDir,omitempty"`
 	Defaults      Options            `json:"defaults"`
 	Devices       map[string]Options `json:"devices,omitempty"`
 	DeviceNames   map[string]string  `json:"deviceNames,omitempty"`

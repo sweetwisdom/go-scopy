@@ -38,9 +38,9 @@ func (u *UI) openAppExportDialog(serial string) {
 			}
 		}
 		filename := domain.AppExportFilename(info, u.state.AppMetas[serial+"\x00"+packages[0]])
-		destination, err = app.SaveFile(app.SaveFileOptions{Title: "导出应用安装包", SuggestedName: filename, DefaultExtension: "apk", Filters: []app.FileFilter{{Name: "Android 安装包", Pattern: "*.apk"}}})
+		destination, err = u.appExportPicker("导出应用安装包", filename, true)
 	} else {
-		destination, err = app.OpenDirectory(app.OpenDirectoryOptions{Title: fmt.Sprintf("选择 %d 个应用的导出目录", len(packages))})
+		destination, err = u.appExportPicker(fmt.Sprintf("选择 %d 个应用的导出目录", len(packages)), "", false)
 	}
 	if errors.Is(err, app.ErrCanceled) || (err == nil && destination == "") {
 		return
@@ -64,6 +64,20 @@ func (u *UI) openAppExportDialog(serial string) {
 		u.notice = "设备已离线，未导出应用"
 		return
 	}
+	dir := destination
+	if single {
+		dir = filepath.Dir(destination)
+	}
+	u.rememberAppExportDirectory(dir)
+	if u.apps.exportDismissed == nil {
+		u.apps.exportDismissed = map[uint64]bool{}
+	}
+	// Earlier transfers stay visible until they finish; only their result cards are hidden.
+	for _, task := range u.backend.State().Tasks {
+		if task.Export.Total > 0 && task.Export.Serial == serial {
+			u.apps.exportDismissed[task.ID] = true
+		}
+	}
 	u.backend.ExportApps(serial, packages, destination, single)
 	u.apps.selected = map[string]bool{}
 	u.notice = "已开始导出，可在应用包页面查看进度"
@@ -74,7 +88,7 @@ func (u *UI) appExportStatus(f *flex.Frame, serial string) {
 	shown := 0
 	for _, task := range u.state.Tasks {
 		p := task.Export
-		if p.Total == 0 || p.Serial != serial {
+		if p.Total == 0 || p.Serial != serial || (task.Status != "running" && u.apps.exportDismissed[task.ID]) {
 			continue
 		}
 		if task.Status != "running" && shown >= 3 {
@@ -85,6 +99,15 @@ func (u *UI) appExportStatus(f *flex.Frame, serial string) {
 			f.Row().FillWidth().Gap(10).Items(flex.Center).Children(func() {
 				f.Text("安装包导出 · " + taskLabel(task.Status)).FontSize(13).Weight(ui.WeightMedium).Grow(1)
 				f.Text(fmt.Sprintf("%d/%d 已处理", p.Completed, p.Total)).FontSize(11).Color(u.c.muted)
+				if task.Status != "running" {
+					if f.Button(u.id(fmt.Sprintf("app-export-dismiss-%d", task.ID)), "✕").Ghost().Small().Clicked() {
+						if u.apps.exportDismissed == nil {
+							u.apps.exportDismissed = map[uint64]bool{}
+						}
+						u.apps.exportDismissed[task.ID] = true
+						u.wake.Invalidate()
+					}
+				}
 			})
 			if task.Status == "running" {
 				if p.Current != "" {

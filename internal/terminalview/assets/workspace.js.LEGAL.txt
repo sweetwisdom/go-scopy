@@ -1,0 +1,51 @@
+Bundled license information:
+
+@vue/shared/dist/shared.esm-bundler.js:
+  /**
+  * @vue/shared v3.5.24
+  * (c) 2018-present Yuxi (Evan) You and Vue contributors
+  * @license MIT
+  **/
+
+@vue/reactivity/dist/reactivity.esm-bundler.js:
+  /**
+  * @vue/reactivity v3.5.24
+  * (c) 2018-present Yuxi (Evan) You and Vue contributors
+  * @license MIT
+  **/
+
+@vue/runtime-core/dist/runtime-core.esm-bundler.js:
+  /**
+  * @vue/runtime-core v3.5.24
+  * (c) 2018-present Yuxi (Evan) You and Vue contributors
+  * @license MIT
+  **/
+
+@vue/runtime-dom/dist/runtime-dom.esm-bundler.js:
+  /**
+  * @vue/runtime-dom v3.5.24
+  * (c) 2018-present Yuxi (Evan) You and Vue contributors
+  * @license MIT
+  **/
+
+vue/dist/vue.runtime.esm-bundler.js:
+  /**
+  * vue v3.5.24
+  * (c) 2018-present Yuxi (Evan) You and Vue contributors
+  * @license MIT
+  **/
+
+@xterm/xterm/lib/xterm.mjs:
+@xterm/addon-fit/lib/addon-fit.mjs:
+  /**
+   * Copyright (c) 2014-2024 The xterm.js authors. All rights reserved.
+   * @license MIT
+   *
+   * Copyright (c) 2012-2013, Christopher Jeffrey (MIT License)
+   * @license MIT
+   *
+   * Originally forked from (with the author's permission):
+   *   Fabrice Bellard's javascript vt100 for jslinux:
+   *   http://bellard.org/jslinux/
+   *   Copyright (c) 2011 Fabrice Bellard
+   */

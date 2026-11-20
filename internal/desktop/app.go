@@ -13,7 +13,6 @@ import (
 	"github.com/go-scopy/go-scopy/internal/config"
 	"github.com/go-scopy/go-scopy/internal/domain"
 	"github.com/go-scopy/go-scopy/internal/fileview"
-	"github.com/go-scopy/go-scopy/internal/term"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
@@ -45,6 +44,7 @@ type UI struct {
 	search, address, pairAddress, code  flex.Field
 	size, fps, bitrate                  flex.Field
 	adb, scrcpy, output                 flex.Field
+	appExportDir                        flex.Field
 	options                             domain.Options
 	notice                              string
 	pendingDialog, dialogSerial         string
@@ -57,15 +57,13 @@ type UI struct {
 	deviceAddress, newDeviceName        flex.Field
 	deleteSerial                        string
 	application                         *app.Application
-	deviceTab, termMode, termFocus      string
+	deviceTab                           string
 	terminals                           map[string]*terminalPanel
 	files                               filesState
 	fileWeb                             fileWebState
 	apps                                appsState
 	vd                                  virtualDialog
-	terminalInput                       *app.TextInput
-	terminalSlot                        flex.Box
-	terminalSlotSet                     bool
+	terminalWeb                         terminalWebState
 	sessionWindows                      map[string]*sessionWindow
 }
 
@@ -86,6 +84,7 @@ func New(backend domain.Backend) *UI {
 	u.adb.SetText(u.state.Settings.ADBPath)
 	u.scrcpy.SetText(u.state.Settings.ScrcpyPath)
 	u.output.SetText(u.state.Settings.OutputDir)
+	u.appExportDir.SetText(u.state.Settings.AppExportDir)
 	u.setTheme(u.state.Settings.Theme)
 	u.loadOptions()
 	u.syncDevices()
@@ -163,47 +162,20 @@ func (u *UI) readOptions() (domain.Options, error) {
 
 func (u *UI) Config() app.Config {
 	u.initFileWeb()
+	u.initTerminalWeb()
 	return app.Config{Title: "Go-Scopy", Icon: brand.WindowIcon(), Class: "GoScopy.Desktop", Width: 1240, Height: 820, MinWidth: 1000, MinHeight: 700,
 		Web: &u.fileWeb.host, WindowMode: app.WindowCustomTitlebar, TitlebarHeight: 44, Tree: &u.tree, Invalidator: &u.wake,
 		WindowControls: func() app.WindowControlsStyle {
 			return app.WindowControlsStyle{Foreground: u.c.muted, Hover: u.c.selected, Close: ui.RGB(220, 48, 54), CloseForeground: ui.RGB(255, 255, 255), Minimize: "最小化", Maximize: "最大化", Restore: "还原", CloseName: "关闭"}
 		},
 		TextInput: func(context app.TextInputContext) *app.TextInput {
-			if context.Terminal {
-				p := u.focusedTerminal()
-				if context.ID != u.id("terminal-pane") || p == nil || p.stream == nil || p.exit != "" {
-					return nil
-				}
-				if u.terminalInput == nil {
-					u.terminalInput = &app.TextInput{}
-				}
-				cursor := p.term.Cursor()
-				cellW, cellH := float32(8), float32(16)
-				u.terminalInput.Bounds = ui.Rect{X: context.Bounds.X + float32(cursor.X)*cellW, Y: context.Bounds.Y + float32(cursor.Y)*cellH, Width: cellW, Height: cellH}
-				u.terminalInput.OnEvent = func(event app.TextEvent) (app.TextState, error) {
-					if u.focusedTerminal() != p || p.stream == nil || p.exit != "" {
-						return app.TextState{}, nil
-					}
-					switch event.Kind {
-					case app.TextInsert:
-						p.stream.Write([]byte(event.Text))
-					case app.TextPaste:
-						p.stream.Write(term.EncodePaste(event.Text, p.term.Modes().BracketedPaste))
-					}
-					return app.TextState{}, nil
-				}
-				return u.terminalInput
-			}
-			return flex.Fields(&u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output, &u.deviceName, &u.deviceAddress, &u.newDeviceName, &u.vd.width, &u.vd.height, &u.vd.dpi, &u.files.search, &u.files.name, &u.apps.search, &u.scripts.path, &u.scripts.python, &u.scripts.timeout)(context)
+			return flex.Fields(&u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output, &u.appExportDir, &u.deviceName, &u.deviceAddress, &u.newDeviceName, &u.vd.width, &u.vd.height, &u.vd.dpi, &u.files.search, &u.files.name, &u.apps.search, &u.scripts.path, &u.scripts.python, &u.scripts.timeout)(context)
 		},
 		OnKey: func(e ui.KeyEvent) ui.EventResult {
 			for _, selectState := range []*flex.SelectState{&u.vd.imeSelect, &u.vd.appSelect} {
 				if result := selectState.Key(e); result.Handled {
 					return result
 				}
-			}
-			if u.terminalKey(e) {
-				return ui.EventResult{Handled: true}
 			}
 			return ui.EventResult{}
 		},
@@ -213,11 +185,14 @@ func (u *UI) Config() app.Config {
 					return result
 				}
 			}
-			if u.terminalWheel(e) {
-				return ui.EventResult{Handled: true, Repaint: true}
-			}
 			return u.view.Wheel(e)
 		}, Paint: u.paint, OnWake: u.onWake,
+		OnClosed: func() {
+			// Programmatic Window.Close bypasses OnCloseRequest. Native views
+			// are already gone here; release only the sessions and timers.
+			u.terminalWeb.page = nil
+			u.closeTerminals()
+		},
 		OnCloseRequest: func(allow func()) {
 			if len(u.state.Sessions) > 0 {
 				u.closing = true
@@ -234,11 +209,11 @@ func (u *UI) Config() app.Config {
 }
 
 func (u *UI) onWake() {
-	u.drainTerminals()
 	u.state = u.backend.State()
 	u.setTheme(u.state.Settings.Theme)
 	u.syncDevices()
 	u.filePageWake()
+	u.terminalPageWake()
 	for _, session := range u.sessionWindows {
 		session.wake.Invalidate()
 	}
@@ -251,6 +226,10 @@ func (u *UI) onWake() {
 		}
 		if kind == "file-workspace" {
 			u.openFileWebDialog()
+			return
+		}
+		if kind == "app-export-dir" {
+			u.chooseAppExportDirectory()
 			return
 		}
 		if kind == "output" {
@@ -304,8 +283,7 @@ func (u *UI) dialog(kind string) {
 func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 	u.overviewCompact = size.Width < 1180
 	u.fileWeb.slotSet = false
-	u.terminalSlot = flex.Box{}
-	u.terminalSlotSet = false
+	u.terminalWeb.slotSet = false
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, u.c.bg)
 	u.view.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
@@ -331,9 +309,10 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 	if u.fileWeb.slotSet && u.fileWeb.page != nil {
 		canvas.NativeView(u.fileWeb.page.ID(), u.fileWeb.slot.Rect())
 	}
-	if u.terminalSlotSet {
-		u.paintTerminal(canvas, u.terminalSlot.Rect(), u.termMode)
+	if u.terminalWeb.slotSet && u.terminalWeb.page != nil {
+		canvas.NativeView(u.terminalWeb.page.ID(), u.terminalWeb.slot.Rect())
 	}
+	u.sendTerminalContext()
 }
 
 func (u *UI) rail(f *flex.Frame) {
@@ -539,6 +518,15 @@ func (u *UI) card(f *flex.Frame, build func()) {
 }
 
 func (u *UI) content(f *flex.Frame) {
+	if u.terminalActive() && os.Getenv("VIVA_HEADLESS") != "1" {
+		for _, d := range u.state.Devices {
+			if d.Serial == u.selected {
+				f.Column().Grow(1).FillHeight().Pad(24).Children(func() { u.device(f, d) })
+				return
+			}
+		}
+	}
+
 	// Web content owns its scrolling. Keep its native view out of a scrolling
 	// Viva parent so it can never cover the device header or shell chrome.
 	if u.section == "devices" && u.deviceTab == "files" && !u.connecting && !u.closing && !u.vd.open && u.fileWeb.err == "" {
@@ -1034,6 +1022,7 @@ func (u *UI) settings(f *flex.Frame) {
 		})
 		u.small(f, "文件名包含时间与设备序列号。录屏开始前选择参数，停止会话后自动保存。")
 	})
+	u.appExportSettings(f)
 }
 
 func (u *UI) pathField(f *flex.Frame, label, key string, field *flex.Field, placeholder string) {
@@ -1052,6 +1041,7 @@ func (u *UI) saveSettings() {
 	s.ADBPath = strings.TrimSpace(u.adb.Text())
 	s.ScrcpyPath = strings.TrimSpace(u.scrcpy.Text())
 	s.OutputDir = strings.TrimSpace(u.output.Text())
+	s.AppExportDir = strings.TrimSpace(u.appExportDir.Text())
 	if err := config.Validate(s); err != nil {
 		u.notice = err.Error()
 	} else {

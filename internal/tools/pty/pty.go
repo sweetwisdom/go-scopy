@@ -86,12 +86,17 @@ func Start(config Config) (*Shell, error) {
 	if err != nil {
 		return nil, err
 	}
-	shell := &Shell{b: b, notify: config.Notify, done: make(chan struct{}), readDone: make(chan struct{}), input: make(chan []byte, 256)}
+	return startStream(b, config.Notify), nil
+}
+
+// startStream shares bounded I/O and lifecycle handling between PTYs and pipes.
+func startStream(b backend, notify func()) *Shell {
+	shell := &Shell{b: b, notify: notify, done: make(chan struct{}), readDone: make(chan struct{}), input: make(chan []byte, 256)}
 	shell.space = sync.NewCond(&shell.mu)
 	go shell.readLoop()
 	go shell.writeLoop()
 	go shell.wait()
-	return shell, nil
+	return shell
 }
 
 func (shell *Shell) wake() {

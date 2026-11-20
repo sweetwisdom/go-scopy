@@ -1,40 +1,34 @@
 package tools
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 
 	"github.com/go-scopy/go-scopy/internal/tools/pty"
 )
 
-// DeviceShell opens an interactive adb shell on a pseudo-terminal, so line
-// editing, colors and full-screen programs behave as they do in a terminal.
-// The caller drains output and closes the session; sizing works because the
-// adb client resizes the device pty when the pseudo-terminal changes.
+// DeviceShell follows escrcpy's device provider: a remote Android PTY with
+// ordinary local pipes. There is no Windows ConPTY in this path.
 func (t Tools) DeviceShell(serial string, cols, rows int, notify func()) (*pty.Shell, error) {
-	if t.ADB == "" {
-		return nil, errUnsupported("adb 未就绪")
-	}
-	return pty.Start(pty.Config{
-		Cols: cols, Rows: rows, Path: t.ADB,
-		Args:   []string{"-P", "5037", "-s", serial, "shell", "-t"},
-		Env:    localADBEnvironment(t.ADB),
-		Notify: notify,
-	})
+	return t.deviceTerminal(serial, []string{"shell", "-tt"}, notify)
 }
 
-// DeviceLogcat streams the device log through the same pseudo-terminal path,
-// so the terminal view renders it without a second code path.
+// DeviceLogcat uses the same bounded pipe stream as the device shell.
 func (t Tools) DeviceLogcat(serial string, cols, rows int, notify func()) (*pty.Shell, error) {
+	return t.deviceTerminal(serial, []string{"logcat", "-v", "threadtime"}, notify)
+}
+
+func (t Tools) deviceTerminal(serial string, args []string, notify func()) (*pty.Shell, error) {
 	if t.ADB == "" {
 		return nil, errUnsupported("adb 未就绪")
 	}
-	return pty.Start(pty.Config{
-		Cols: cols, Rows: rows, Path: t.ADB,
-		Args:   []string{"-P", "5037", "-s", serial, "logcat", "-v", "threadtime"},
-		Env:    localADBEnvironment(t.ADB),
-		Notify: notify,
-	})
+	if serial == "" {
+		return nil, errUnsupported("请先选择设备")
+	}
+	cmd := Command(context.Background(), t.ADB, append([]string{"-P", "5037", "-s", serial}, args...)...)
+	cmd.Env = localADBEnvironment(t.ADB)
+	return pty.StartCommand(cmd, notify)
 }
 
 // tempFilePath reserves a scratch file path beside the system temp directory.

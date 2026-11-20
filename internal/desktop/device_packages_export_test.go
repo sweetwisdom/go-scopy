@@ -204,3 +204,48 @@ func TestAppExportPendingPickerCannotExportSwitchedDevice(t *testing.T) {
 		t.Fatal("stale export request submitted")
 	}
 }
+
+func TestAppExportRemembersDirectoryAndRetiresOldCards(t *testing.T) {
+	u, f, s := openExportUI(t, []string{"com.demo"})
+	f.state.Tasks = []domain.Task{
+		{ID: 10, Status: "done", Export: domain.AppExportProgress{Serial: u.selected, Total: 1}},
+		{ID: 11, Status: "running", Export: domain.AppExportProgress{Serial: u.selected, Total: 1}},
+		{ID: 12, Status: "done", Export: domain.AppExportProgress{Serial: "other-device", Total: 1}},
+	}
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "Demo.apk")
+	if err := s.Driver().QueueSaveFile(dest, nil); err != nil {
+		t.Fatal(err)
+	}
+	click(t, s, "导出")
+	if err := s.Driver().Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if f.state.Settings.AppExportDir != dir || u.appExportDir.Text() != dir {
+		t.Fatal("last selected directory not saved")
+	}
+	if !u.apps.exportDismissed[10] || !u.apps.exportDismissed[11] || u.apps.exportDismissed[12] {
+		t.Fatal("previous results not retired for the correct device")
+	}
+	texts := strings.Join(s.Texts(), "\n")
+	if strings.Contains(texts, "安装包导出 · 已完成") || !strings.Contains(texts, "安装包导出 · 进行中") {
+		t.Fatal("old result should hide without hiding active transfer", texts)
+	}
+}
+
+func TestAppExportCancelledSelectionPreservesDirectoryAndCards(t *testing.T) {
+	u, f, s := openExportUI(t, []string{"com.demo"})
+	previous := t.TempDir()
+	f.state.Settings.AppExportDir = previous
+	f.state.Tasks = []domain.Task{{ID: 10, Status: "done", Export: domain.AppExportProgress{Serial: u.selected, Total: 1}}}
+	if err := s.Driver().QueueSaveFile("", app.ErrCanceled); err != nil {
+		t.Fatal(err)
+	}
+	click(t, s, "导出")
+	if err := s.Driver().Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if f.calls != 0 || f.state.Settings.AppExportDir != previous || u.apps.exportDismissed[10] {
+		t.Fatal("cancel changed directory or removed previous result")
+	}
+}

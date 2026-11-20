@@ -69,6 +69,9 @@ func Validate(s domain.Settings) error {
 	if !filepath.IsAbs(s.OutputDir) {
 		return errors.New("保存目录必须是绝对路径")
 	}
+	if s.AppExportDir != "" && !filepath.IsAbs(s.AppExportDir) {
+		return errors.New("应用导出目录必须是绝对路径")
+	}
 	if err := ValidateOptions(s.Defaults); err != nil {
 		return err
 	}

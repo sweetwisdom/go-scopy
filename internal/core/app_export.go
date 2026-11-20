@@ -18,7 +18,10 @@ import (
 func (s *Service) AppExport(serial, pkg, localDir string) {
 	if localDir == "" {
 		s.mu.Lock()
-		localDir = s.state.Settings.OutputDir
+		localDir = s.state.Settings.AppExportDir
+		if localDir == "" {
+			localDir = s.state.Settings.OutputDir
+		}
 		s.mu.Unlock()
 	}
 	s.ExportApps(serial, []string{pkg}, localDir, false)

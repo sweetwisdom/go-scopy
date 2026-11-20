@@ -14,12 +14,13 @@ import (
 
 // appsState is the app-packages tab's own view state.
 type appsState struct {
-	search         flex.Field
-	filter         string // "all" | "user" | "system"
-	selected       map[string]bool
-	confirm        string   // package pending uninstall confirmation
-	menuFor        string   // package whose row actions are open
-	exportPackages []string // Snapshot for the pending native destination picker.
+	search          flex.Field
+	filter          string // "all" | "user" | "system"
+	selected        map[string]bool
+	confirm         string          // package pending uninstall confirmation
+	menuFor         string          // package whose row actions are open
+	exportPackages  []string        // Snapshot for the pending native destination picker.
+	exportDismissed map[uint64]bool // Result cards hidden for this application session.
 }
 
 // devicePackages is the app list: search, filter, install, export, backup and

@@ -5,11 +5,14 @@ Go-Scopy 的应用代码采用 MIT 许可证。以下组件和资源保留各自
 | 项目 | 用途 | 许可证／声明 |
 | --- | --- | --- |
 | [GoIM](https://github.com/Ezreal-byte/GoIM) | 三栏布局、配色、原生 Viva 组织方式、Actions 矩阵与打包辅助函数的参考及改编 | MIT，Copyright (c) 2026 Ezreal-byte；`GoIM-MIT.txt` |
-| [escrcpy](https://github.com/viarotel-org/escrcpy) | 连接与录屏工作流参考，跨平台工具资源来源 | Apache-2.0；`escrcpy-Apache-2.0.txt` |
+| [escrcpy](https://github.com/viarotel-org/escrcpy) | 连接与录屏工作流参考，跨平台工具资源来源；设备终端 xterm.js hook 和 GitHub 深浅色主题移植（`internal/terminalview/src`，Go 通信与生命周期适配） | Apache-2.0；`escrcpy-Apache-2.0.txt` |
 | [Viva](https://github.com/vivaui/viva), v0.2.3 | 原生 UI 与测试驱动 | Apache-2.0；`Viva-Apache-2.0.txt`、`Viva-NOTICE.txt`、`Viva-third-party.md` |
 | [purego](https://github.com/ebitengine/purego), v0.11.1 | Viva 的平台互操作依赖 | Apache-2.0；`purego-Apache-2.0.txt` |
 | motty（`internal/term` 与 `internal/tools/pty` 移植及文件图标矢量） | VT/xterm 终端仿真器、PTY 实现及文件图标 | Apache-2.0；`motty-Apache-2.0.txt`；上游 github.com/motty/motty；图标另见下行 |
 | [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) | 文件类型图标（Motty 图标子集） | MIT；`Material-Icon-Theme-MIT.txt` |
+| [xterm.js](https://github.com/xtermjs/xterm.js)，6.0.0；FitAddon 0.11.0 | WebView 交互式终端与面板尺寸自适应 | MIT；`xterm-MIT.txt`、`xterm-addon-fit-MIT.txt` |
+| [Vue](https://github.com/vuejs/core)，3.5.24 | 复用 escrcpy 终端 hook 的响应式与组件生命周期 | MIT；`Vue-MIT.txt` |
+| [Fig Autocomplete](https://github.com/withfig/autocomplete)，2.692.3 | 保留 ADB 命令规格供后续补全使用，当前终端未启用或打包此规格 | MIT；`Fig-Autocomplete-MIT.txt` |
 | [Go](https://go.dev/) | 工具链与标准库 | BSD；`Go-BSD.txt` |
 | [scrcpy](https://github.com/Genymobile/scrcpy) | 原样分发的客户端与 Android server | Apache-2.0；`scrcpy-Apache-2.0.txt` |
 | [Android adb](https://android.googlesource.com/platform/packages/modules/adb/) | 原样分发的 Android 调试工具与驱动 DLL | Android Open Source Project，Apache-2.0 及其第三方声明；见 `adb-NOTICE.txt` |
@@ -21,7 +24,7 @@ Go-Scopy 的应用代码采用 MIT 许可证。以下组件和资源保留各自
 | uiautomator2 3.7.1（用户自行安装） | Python UI 自动化 | MIT；安装发行版内保留 dist-info/LICENSE |
 | adbutils、Pillow、lxml、requests 等锁定依赖（不随当前包分发） | 用户 Python 自动化依赖 | 版本与哈希见 requirements.lock；许可由安装的各 wheel 提供 |
 
-Go-Scopy 没有迁入 escrcpy 的 Electron／Vue 界面、私有扩展或手机控制协议实现。离线导入仅原样复制清单中的公开工具资源，应用不链接这些工具；macOS 打包时重新进行 ad-hoc 签名，其余工具内容保持原样。Viva 的上游声明覆盖其内含的图标、文字数据等第三方材料。
+Go-Scopy 没有迁入 escrcpy 的 Electron 宿主、私有扩展或手机控制协议实现。设备终端移植了其公开的 Vue/xterm.js hook 与主题，并适配 Go/WebView 通信；来源提交与文件清单见 `internal/terminalview/sources.json`。离线导入仅原样复制清单中的公开工具资源，应用不链接这些工具；macOS 打包时重新进行 ad-hoc 签名，其余工具内容保持原样。Viva 的上游声明覆盖其内含的图标、文字数据等第三方材料。
 
 ## 工具来源与对应源码
 

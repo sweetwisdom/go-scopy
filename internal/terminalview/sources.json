@@ -1,0 +1,17 @@
+{
+  "escrcpy": {
+    "commit": "3a73e0d4de58a4674dddd61fc43956b4882c8bec",
+    "files": [
+      "desktop/pages/terminal/hooks/use-terminal/index.js",
+      "desktop/pages/terminal/hooks/use-terminal/theme.js",
+      "desktop/electron/modules/terminal/helpers/providers/device.js"
+    ]
+  },
+  "fig": {
+    "package": "@withfig/autocomplete",
+    "version": "2.692.3",
+    "file": "build/adb.js",
+    "sha256": "f8e213b5aa563ec895b3d92f252380a8b61087547806bf6fbff1587de2092d81",
+    "status": "reserved; not bundled or enabled in xterm-only workspace"
+  }
+}
