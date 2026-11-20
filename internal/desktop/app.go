@@ -30,6 +30,7 @@ func palette(dark bool) colors {
 type UI struct {
 	overviewCompact, overviewAdvanced   bool
 	scripts                             scriptPanel
+	scriptWeb                           scriptWebState
 	backend                             domain.Backend
 	state                               domain.State
 	tree                                ui.Tree
@@ -191,16 +192,19 @@ func (u *UI) Config() app.Config {
 			// Programmatic Window.Close bypasses OnCloseRequest. Native views
 			// are already gone here; release only the sessions and timers.
 			u.terminalWeb.page = nil
+			u.scriptWeb.page = nil
+			u.closeScriptWeb()
 			u.closeTerminals()
 		},
 		OnCloseRequest: func(allow func()) {
-			if len(u.state.Sessions) > 0 {
+			if len(u.state.Sessions) > 0 || u.scriptWeb.dirty {
 				u.closing = true
 				u.allowClose = allow
 				u.wake.Invalidate()
 			} else {
 				u.closeFileWeb()
 				u.closeTerminals()
+				u.closeScriptWeb()
 				u.closeSessionWindows()
 				allow()
 			}
@@ -214,6 +218,7 @@ func (u *UI) onWake() {
 	u.syncDevices()
 	u.filePageWake()
 	u.terminalPageWake()
+	u.scriptPageWake()
 	for _, session := range u.sessionWindows {
 		session.wake.Invalidate()
 	}
@@ -284,6 +289,7 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 	u.overviewCompact = size.Width < 1180
 	u.fileWeb.slotSet = false
 	u.terminalWeb.slotSet = false
+	u.scriptWeb.slotSet = false
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, u.c.bg)
 	u.view.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
@@ -294,7 +300,13 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 				f.Text("ANDROID WORKSPACE").FontSize(10).Color(u.c.muted).Grow(1)
 				f.Text("本地连接").FontSize(11).Color(u.c.muted).MarginSides(0, 150, 0, 0)
 			})
-			f.Row().FillWidth().Height(max(size.Height-72, 0)).Children(func() { u.rail(f); u.sidebar(f); u.content(f) })
+			f.Row().FillWidth().Height(max(size.Height-72, 0)).Children(func() {
+				u.rail(f)
+				if u.section != "scripts" {
+					u.sidebar(f)
+				}
+				u.content(f)
+			})
 			f.Row().FillWidth().Height(28).PadX(18).Gap(8).Items(flex.Center).Background(u.c.rail).Border(1, u.c.border).Children(func() {
 				color := u.c.green
 				if u.state.ToolError != "" {
@@ -312,6 +324,10 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 	if u.terminalWeb.slotSet && u.terminalWeb.page != nil {
 		canvas.NativeView(u.terminalWeb.page.ID(), u.terminalWeb.slot.Rect())
 	}
+	if u.scriptWeb.slotSet && u.scriptWeb.page != nil {
+		canvas.NativeView(u.scriptWeb.page.ID(), u.scriptWeb.slot.Rect())
+	}
+	u.sendScriptContext()
 	u.sendTerminalContext()
 }
 
@@ -321,7 +337,7 @@ func (u *UI) rail(f *flex.Frame) {
 		for _, nav := range []struct {
 			key, label, control string
 			icon                ui.Icon
-		}{{"devices", "设备", "nav-devices", iconPhone}, {"tasks", "任务", "nav-tasks", iconTasks}} {
+		}{{"devices", "设备", "nav-devices", iconPhone}, {"tasks", "任务", "nav-tasks", iconTasks}, {"scripts", "脚本", "nav-scripts", iconScript}} {
 			if u.nav(f, nav.control, nav.label, nav.icon, u.section == nav.key) {
 				u.section = nav.key
 				u.filter = "all"
@@ -518,6 +534,10 @@ func (u *UI) card(f *flex.Frame, build func()) {
 }
 
 func (u *UI) content(f *flex.Frame) {
+	if u.section == "scripts" && !u.closing {
+		f.Column().Grow(1).FillHeight().Children(func() { u.scriptWorkspace(f) })
+		return
+	}
 	if u.terminalActive() && os.Getenv("VIVA_HEADLESS") != "1" {
 		for _, d := range u.state.Devices {
 			if d.Serial == u.selected {
@@ -542,8 +562,11 @@ func (u *UI) content(f *flex.Frame) {
 	f.ScrollArea(u.id("content-scroll")).Grow(1).FillHeight().Pad(30).Gap(20).Children(func() {
 		if u.closing {
 			u.card(f, func() {
-				f.Text("结束投屏并退出？").FontSize(18).Weight(ui.WeightSemibold)
-				u.small(f, "正在进行的投屏与录屏将停止，录像完成封装后退出。")
+				f.Text("确认退出？").FontSize(18).Weight(ui.WeightSemibold)
+				if u.scriptWeb.dirty {
+					u.small(f, "脚本有未保存的修改。继续使用后可前往脚本页保存；直接退出将丢弃这些修改。")
+				}
+				u.small(f, "正在进行的投屏、录屏和脚本将停止，录像完成封装后退出。")
 				f.Row().Gap(10).Children(func() {
 					if f.Button(u.id("close-cancel"), "继续使用").Outline().Clicked() {
 						u.closing = false
@@ -553,6 +576,7 @@ func (u *UI) content(f *flex.Frame) {
 						if u.allowClose != nil {
 							u.closeFileWeb()
 							u.closeTerminals()
+							u.closeScriptWeb()
 							u.closeSessionWindows()
 							u.allowClose()
 						}

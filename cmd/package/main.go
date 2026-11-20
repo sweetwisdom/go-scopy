@@ -47,7 +47,17 @@ func build() error {
 	version := flag.String("version", buildinfo.Version, "release version, without v")
 	commit := flag.String("commit", "working-tree", "source commit")
 	out := flag.String("out", "dist", "output directory")
+	installer := flag.Bool("installer", false, "also build a per-user Windows NSIS installer")
+	makensis := flag.String("makensis", "makensis", "NSIS compiler path (with -installer)")
 	flag.Parse()
+	if *installer {
+		if runtime.GOOS != "windows" {
+			return fmt.Errorf("-installer requires Windows")
+		}
+		if _, err := exec.LookPath(*makensis); err != nil {
+			return fmt.Errorf("NSIS compiler not found; provide -makensis: %w", err)
+		}
+	}
 	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(*version) {
 		return fmt.Errorf("invalid release version")
 	}
@@ -215,7 +225,13 @@ func build() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(archive+".sha256", []byte(sum+"  "+filepath.Base(archive)+"\n"), 0644)
+	if err = os.WriteFile(archive+".sha256", []byte(sum+"  "+filepath.Base(archive)+"\n"), 0644); err != nil {
+		return err
+	}
+	if *installer {
+		return buildWindowsInstaller(root, *version, *out, *makensis)
+	}
+	return nil
 }
 
 func verifyResources() error {
@@ -446,6 +462,9 @@ func pack(root, dest string, tgz bool) error {
 // packagePython ships script support, not a Python runtime or installed wheels.
 // Local prepared runtime artifacts must not change the contents of a release.
 func packagePython(dest string) error {
+	if err := copyFile("docs/python-script-development.md", filepath.Join(dest, "DEVELOPMENT.zh-CN.md")); err != nil {
+		return err
+	}
 	base := filepath.Join("resources", "python")
 	for _, dir := range []string{"lib", "examples"} {
 		if err := copyScriptTree(filepath.Join(base, dir), filepath.Join(dest, dir)); err != nil {

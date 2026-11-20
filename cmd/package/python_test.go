@@ -8,6 +8,12 @@ import (
 
 func TestPackagePythonExcludesInterpreterDependenciesAndCaches(t *testing.T) {
 	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("docs", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("docs/python-script-development.md", []byte("# Guide"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	base := filepath.Join("resources", "python")
 	for _, path := range []string{"lib/goscrcpy/__init__.py", "lib/goscrcpy/__pycache__/cache.pyc", "examples/device_info.py", "requirements.in", "requirements.lock", "README.md", "runtime.json", "runtime/python.exe", "runtime/packages/uiautomator2/__init__.py"} {
 		path = filepath.Join(base, filepath.FromSlash(path))
@@ -22,7 +28,7 @@ func TestPackagePythonExcludesInterpreterDependenciesAndCaches(t *testing.T) {
 	if err := packagePython(dest); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"lib/goscrcpy/__init__.py", "examples/device_info.py", "requirements.in", "requirements.lock", "README.md"} {
+	for _, path := range []string{"lib/goscrcpy/__init__.py", "examples/device_info.py", "requirements.in", "requirements.lock", "README.md", "DEVELOPMENT.zh-CN.md"} {
 		if _, err := os.Stat(filepath.Join(dest, filepath.FromSlash(path))); err != nil {
 			t.Fatal(err)
 		}

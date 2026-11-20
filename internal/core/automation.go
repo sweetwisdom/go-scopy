@@ -5,9 +5,13 @@ import (
 
 	"github.com/go-scopy/go-scopy/internal/automation"
 	"github.com/go-scopy/go-scopy/internal/domain"
+	"github.com/go-scopy/go-scopy/internal/scriptstore"
 )
 
-type scriptService struct{ manager *automation.Manager }
+type scriptService struct {
+	manager *automation.Manager
+	files   *scriptstore.Store
+}
 
 func (s *Service) scriptManager() (*automation.Manager, error) {
 	s.mu.Lock()

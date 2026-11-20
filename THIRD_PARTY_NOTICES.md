@@ -36,3 +36,17 @@ Go-Scopy 没有迁入 escrcpy 的 Electron 宿主、私有扩展或手机控制�
 - FFmpeg 对应源码：<https://github.com/FFmpeg/FFmpeg>；scrcpy 的 FFmpeg 构建配置／源码版本见对应标签下的 [release scripts](https://github.com/Genymobile/scrcpy/tree/v4.1/release)。动态库保持可替换，应用本身不链接这些库。
 - SDL 对应源码：<https://github.com/libsdl-org/SDL/tree/release-3.4.12>；libusb：<https://github.com/libusb/libusb/tree/v1.0.30>。
 - Android adb 源码：<https://android.googlesource.com/platform/packages/modules/adb/>，官方平台工具及声明：<https://developer.android.com/tools/releases/platform-tools>。
+
+
+## Python 脚本编辑器（CodeMirror 6）
+
+独立脚本工作台复用 CodeMirror 官方基础设置、Python 语言支持、补全/代码片段和 one-dark 主题，未接入语言服务器。入口依赖版本锁定于 `internal/scriptview/package-lock.json`：`codemirror` 6.0.2、`@codemirror/lang-python` 6.2.1、`@codemirror/autocomplete` 6.20.4、`@codemirror/commands` 6.11.1、`@codemirror/view` 6.43.15、`@codemirror/state` 6.7.6、`@codemirror/language` 6.13.1、`@codemirror/theme-one-dark` 6.1.3。
+
+- CodeMirror / Lezer 官方源码：https://github.com/codemirror 、https://github.com/lezer-parser 。
+- CodeMirror、Lezer 等包采用 MIT；依赖各自的原始声明和版权文本在构建时收集到 `internal/scriptview/assets/licenses.txt` 和 `licenses/CodeMirror-editor-licenses.txt`，随 Go 二进制内嵌及发行包分发；esbuild 额外保留 `workspace.js.LEGAL.txt`。
+- 补充的 goscrcpy/uiautomator2 提示是本项目静态模板，不是从其他编辑器或 AI 服务复制的语言服务器。
+
+
+## Windows 安装包
+
+复用 Viva v0.2.3 的 `tools/winpkg.Script` NSIS 模板（Viva MIT 声明见既有许可），仅扩展完整工具/文档 payload 的逐文件安装与卸载清单。编译器采用 NSIS 3.12 官方 Windows ZIP，来源和下载件 SHA-256 见 `scripts/nsis.lock.json`；没有安装到系统，也未修改 NSIS 源码。NSIS 原始许可在 `licenses/NSIS-COPYING.txt`；上游源码分发地址见锁定文件的 `sourceArchive`。安装包不捆绑 NSIS 编译器，不注册或修改用户的 `.md` 默认关联。

@@ -15,3 +15,7 @@ var iconSettings = ui.Icon{ViewBox: 24, Stroke: 1.7, Cap: ui.CapRound, Join: ui.
 var iconTheme = ui.Icon{ViewBox: 24, Stroke: 1.7, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
 	ui.MoveTo(20, 15), ui.CubicTo(16, 17, 10, 15, 9, 11), ui.CubicTo(8, 8, 9, 5, 11, 3), ui.CubicTo(5, 3, 2, 8, 3, 14), ui.CubicTo(4, 20, 11, 23, 16, 20), ui.CubicTo(18, 19, 19, 17, 20, 15), ui.ClosePath(),
 }}
+
+var iconScript = ui.Icon{ViewBox: 24, Stroke: 1.7, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
+	ui.MoveTo(8, 3), ui.LineTo(19, 3), ui.LineTo(19, 21), ui.LineTo(8, 21), ui.MoveTo(11, 8), ui.LineTo(8, 11), ui.LineTo(11, 14), ui.MoveTo(14, 8), ui.LineTo(17, 11), ui.LineTo(14, 14), ui.MoveTo(4, 7), ui.LineTo(4, 18),
+}}
