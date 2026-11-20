@@ -14,7 +14,9 @@
 
 </div>
 
-![Go-Scopy 设备管理与投屏界面](docs/.imgs/demo.png)
+<img width="1278" alt="df3578fc5aa907b648810113004608e4" src="https://github.com/user-attachments/assets/a3c3fe3f-84af-4461-9d37-0b1531633fad" />
+
+<img width="1278" height="1336" alt="c682371f5bee0e8cb9557e01a0d62ce0" src="https://github.com/user-attachments/assets/edcd4307-a7ff-4513-9681-34c52d7a31d2" />
 
 ## 功能亮点
 
