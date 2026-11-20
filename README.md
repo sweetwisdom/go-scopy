@@ -24,6 +24,8 @@ A simple Android screen mirroring and control app for Windows, macOS, and Linux.
 - **Record and capture** — Record your screen, save screenshots, enable audio forwarding when needed, and choose where your captures are stored.
 - **An island for your controls** — On Windows, a compact floating capsule expands into phone controls. Drag it freely and snap it to a screen edge, while your scrcpy window stays independent.
 - **Preferences for each device** — Tune resolution limits, frame rate, bitrate, audio, and always-on-top behavior. Save settings per device or as your defaults.
+- **Web file workspace** — Browse in list or grid view, select multiple items, navigate paths, and track file operations. Preview images, UTF-8 text/code, and media supported by your system WebView; the native file page remains a fallback.
+- **Multiple virtual app windows** — Launch separate virtual displays for different apps on one device, alongside ordinary mirroring. Manage each session independently; repeated launches of the same app remain subject to Android task and multi-display support.
 - **Everyday tools, together** — Install APKs, review operation results in the task center, and switch between light and dark themes.
 
 ## On your desktop
@@ -41,3 +43,7 @@ Release packages include adb and scrcpy for your platform.
 Built with [Viva](https://github.com/vivaui/viva) and [scrcpy](https://github.com/Genymobile/scrcpy). Inspired by [GoIM](https://github.com/Ezreal-byte/GoIM) and [escrcpy](https://github.com/viarotel-org/escrcpy).
 
 [MIT License](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+
+## Python automation
+
+Run trusted local Python scripts for a selected device, with live logs, timeouts and cancellation. UI automation uses uiautomator2 in a separate Python process. The default interpreter comes from PATH; a custom interpreter can be selected. Packages do not include Python or its third-party dependencies. See the [scripting guide](docs/python-scripting.md) for setup and usage.

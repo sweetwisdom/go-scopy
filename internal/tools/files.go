@@ -68,7 +68,7 @@ func (t Tools) RenamePath(ctx context.Context, serial, from, to string) error {
 	if err := validPath(to); err != nil {
 		return err
 	}
-	_, err := t.Device(ctx, serial, "shell", "mv "+shellQuote(from)+" "+shellQuote(to))
+	_, err := t.Device(ctx, serial, "shell", "if [ -e "+shellQuote(to)+" ] || [ -L "+shellQuote(to)+" ]; then echo '目标已存在，未覆盖' >&2; exit 1; fi; mv -n -- "+shellQuote(from)+" "+shellQuote(to))
 	return err
 }
 

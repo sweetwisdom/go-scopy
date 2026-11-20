@@ -12,12 +12,13 @@ import (
 // devicePageKeys are the device workspace's tabs, in display order.
 var devicePageKeys = []struct{ key, label string }{
 	{"overview", "设备概况"}, {"files", "文件管理"}, {"packages", "应用包"},
-	{"terminal", "设备终端"}, {"settings", "设备设置"},
+	{"terminal", "设备终端"}, {"scripts", "Python 脚本"}, {"settings", "设备设置"},
 }
 
 // device hosts the management tabs of one device.
 func (u *UI) device(f *flex.Frame, d domain.Device) {
 	u.deviceHeading(f, d)
+	u.deviceVirtualSessions(f, d.Serial)
 	u.deviceTabs(f, d)
 	switch u.deviceTab {
 	case "overview":
@@ -28,6 +29,8 @@ func (u *UI) device(f *flex.Frame, d domain.Device) {
 		u.devicePackages(f, d)
 	case "terminal":
 		u.deviceTerminalPage(f, d)
+	case "scripts":
+		u.deviceScripts(f, d)
 	default:
 		u.deviceSettings(f, d)
 	}

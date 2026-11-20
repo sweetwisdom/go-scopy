@@ -6,26 +6,26 @@ import (
 	"testing"
 )
 
-func TestReadPandaBlock(t *testing.T) {
+func TestReadAgentBlock(t *testing.T) {
 	var encoded bytes.Buffer
 	_ = binary.Write(&encoded, binary.BigEndian, int32(3))
 	encoded.Write([]byte{1, 2, 3})
-	got, err := readPandaBlock(&encoded)
+	got, err := readAgentBlock(&encoded)
 	if err != nil || !bytes.Equal(got, []byte{1, 2, 3}) {
-		t.Fatalf("readPandaBlock() = %v, %v", got, err)
+		t.Fatalf("readAgentBlock() = %v, %v", got, err)
 	}
 }
 
-func TestReadPandaBool(t *testing.T) {
+func TestReadAgentBool(t *testing.T) {
 	for _, tc := range []struct {
 		input int32
 		want  bool
 	}{{0, false}, {1, true}} {
 		var encoded bytes.Buffer
 		_ = binary.Write(&encoded, binary.BigEndian, tc.input)
-		got, err := readPandaBool(&encoded)
+		got, err := readAgentBool(&encoded)
 		if err != nil || got != tc.want {
-			t.Fatalf("readPandaBool(%d) = %v, %v", tc.input, got, err)
+			t.Fatalf("readAgentBool(%d) = %v, %v", tc.input, got, err)
 		}
 	}
 }

@@ -198,6 +198,16 @@
     {
       "path": "win/vbs/create-desktop-shortcuts.vbs",
       "sha256": "6e2cb854bb96942357380f6384f307e5391bd148b099e8fe507ff677dcad0354"
+    },
+    {
+      "path": "common/go-scrcpy-agent.jar",
+      "sha256": "bbb7958439cbb3079ac7cba439220b5d65e4d7f0da26bc529109c782a886a021"
     }
-  ]
+  ],
+  "agent": {
+    "project": "go-scrcpy-agent",
+    "package": "io.github.goscrcpy.agent",
+    "path": "common/go-scrcpy-agent.jar",
+    "sha256": "bbb7958439cbb3079ac7cba439220b5d65e4d7f0da26bc529109c782a886a021"
+  }
 }

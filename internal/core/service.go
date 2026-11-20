@@ -22,6 +22,7 @@ import (
 )
 
 type Service struct {
+	scripts   *scriptService
 	mu        sync.Mutex
 	configMu  sync.Mutex
 	state     domain.State
@@ -213,11 +214,11 @@ func firstLine(s string) string {
 	return strings.TrimSpace(line)
 }
 
-func (s *Service) submit(title string, work func(context.Context) (string, string, error)) {
+func (s *Service) submit(title string, work func(context.Context) (string, string, error)) uint64 {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return
+		return 0
 	}
 	s.next++
 	id := s.next
@@ -252,6 +253,7 @@ func (s *Service) submit(title string, work func(context.Context) (string, strin
 		s.mu.Unlock()
 		s.wake()
 	}()
+	return id
 }
 
 func (s *Service) Refresh() {
@@ -393,12 +395,14 @@ func (s *Service) Start(serial string, options domain.Options, record bool) {
 }
 
 func (s *Service) StartVirtual(serial string, options domain.Options, display domain.VirtualDisplay, record bool) {
-	s.start(serial, domain.SessionID(serial, domain.SessionVirtual), domain.SessionVirtual, options, &display, record, nil)
+	s.start(serial, domain.NewVirtualSessionID(serial), domain.SessionVirtual, options, &display, record, nil)
 }
 
 func (s *Service) StartHosted(serial, session string, options domain.Options, display *domain.VirtualDisplay, record bool, host domain.SessionHost) {
 	kind := domain.SessionMirror
 	if display != nil {
+		copy := *display
+		display = &copy
 		kind = domain.SessionVirtual
 	}
 	s.start(serial, session, kind, options, display, record, host)
@@ -407,7 +411,7 @@ func (s *Service) StartHosted(serial, session string, options domain.Options, di
 func (s *Service) start(serial, session string, kind domain.SessionKind, options domain.Options, display *domain.VirtualDisplay, record bool, host domain.SessionHost) {
 	title := "投屏 · " + serial
 	if kind == domain.SessionVirtual {
-		title = "虚拟屏幕 · " + serial
+		title = "虚拟屏幕 · " + display.StartApp + " · " + serial
 	}
 	s.submit(title, func(ctx context.Context) (detail, path string, err error) {
 		if host != nil {
@@ -431,7 +435,11 @@ func (s *Service) start(serial, session string, kind domain.SessionKind, options
 			s.mu.Unlock()
 			return "", "", errors.New("此会话已在运行")
 		}
-		s.state.Sessions[session] = domain.Session{ID: session, Serial: serial, Kind: kind, Status: "starting", Started: time.Now()}
+		snapshot := domain.Session{ID: session, Serial: serial, Kind: kind, Status: "starting", Started: time.Now()}
+		if display != nil {
+			snapshot.StartApp = display.StartApp
+		}
+		s.state.Sessions[session] = snapshot
 		s.mu.Unlock()
 		s.wake()
 		defer func() {
@@ -460,7 +468,8 @@ func (s *Service) start(serial, session string, kind domain.SessionKind, options
 		s.mu.Lock()
 		closed := s.closed
 		s.processes[session] = p
-		s.state.Sessions[session] = domain.Session{ID: session, Serial: serial, Kind: kind, Status: "running", Recording: path, Started: time.Now()}
+		snapshot.Status, snapshot.Recording = "running", path
+		s.state.Sessions[session] = snapshot
 		s.mu.Unlock()
 		s.wake()
 		if host != nil {
@@ -639,6 +648,7 @@ func (s *Service) Close() {
 	s.closed = true
 	s.cancel()
 	s.mu.Unlock()
+	s.closeScripts()
 	// Session workers observe cancellation and close their own scrcpy windows.
 	s.wg.Wait()
 }

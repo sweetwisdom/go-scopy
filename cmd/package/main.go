@@ -121,10 +121,26 @@ func build() error {
 	if err := copyFile("resources/extra/common/scrcpy/scrcpy-server", filepath.Join(toolsRoot, "scrcpy-server")); err != nil {
 		return err
 	}
-	if err := copyFile("resources/extra/common/panda-kit.jar", filepath.Join(toolsRoot, "panda-kit.jar")); err != nil {
+	if err := copyFile("resources/extra/common/go-scrcpy-agent.jar", filepath.Join(toolsRoot, "go-scrcpy-agent.jar")); err != nil {
+		return err
+	}
+	// Package only the small script SDK and setup files, never an interpreter
+	// or installed dependencies. Python is supplied by the user through PATH.
+	if err := packagePython(filepath.Join(filepath.Dir(toolsRoot), "python")); err != nil {
 		return err
 	}
 	if err := copyFile("resources/manifest.json", filepath.Join(toolsRoot, "source.json")); err != nil {
+		return err
+	}
+	cli := filepath.Join(root, "go-scopy-script")
+	if runtime.GOOS == "darwin" {
+		cli = filepath.Join(filepath.Dir(toolsRoot), "go-scopy-script")
+	}
+	if runtime.GOOS == "windows" {
+		cli += ".exe"
+	}
+	cliLD := "-s -w -X github.com/go-scopy/go-scopy/internal/buildinfo.Version=" + *version
+	if err := run("go", "build", "-trimpath", "-ldflags", cliLD, "-o", cli, "./cmd/go-scopy-script"); err != nil {
 		return err
 	}
 	suffix := ""
@@ -425,4 +441,44 @@ func pack(root, dest string, tgz bool) error {
 		return gz.Close()
 	}
 	return z.Close()
+}
+
+// packagePython ships script support, not a Python runtime or installed wheels.
+// Local prepared runtime artifacts must not change the contents of a release.
+func packagePython(dest string) error {
+	base := filepath.Join("resources", "python")
+	for _, dir := range []string{"lib", "examples"} {
+		if err := copyScriptTree(filepath.Join(base, dir), filepath.Join(dest, dir)); err != nil {
+			return err
+		}
+	}
+	for _, file := range []string{"requirements.in", "requirements.lock", "README.md"} {
+		if err := copyFile(filepath.Join(base, file), filepath.Join(dest, file)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Avoid shipping interpreter-specific bytecode left by local development.
+func copyScriptTree(src, dest string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "__pycache__" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".pyc") || strings.HasSuffix(d.Name(), ".pyo") {
+			return nil
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		return copyFile(path, filepath.Join(dest, rel))
+	})
 }

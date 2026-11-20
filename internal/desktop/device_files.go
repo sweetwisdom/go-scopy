@@ -23,7 +23,7 @@ type filesState struct {
 
 // deviceFiles is the file manager tab: browse, transfer and edit one device
 // directory at a time.
-func (u *UI) deviceFiles(f *flex.Frame, d domain.Device) {
+func (u *UI) deviceFilesNative(f *flex.Frame, d domain.Device) {
 	ready := d.State == "device"
 	if u.files.dir == "" {
 		u.files.dir = "/sdcard"

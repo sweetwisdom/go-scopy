@@ -42,18 +42,25 @@ func (u *UI) devicePackages(f *flex.Frame, d domain.Device) {
 		}
 	}
 
-	f.Row().FillWidth().Items(flex.Center).Children(func() {
-		f.Icon(iconPhone).Size(18, 18).Color(u.c.blue)
-		f.Text("应用包").FontSize(15).Weight(ui.WeightSemibold)
-		f.Text(strconv.Itoa(len(listing.Apps))+" 个应用").FontSize(11).Color(u.c.muted).MarginSides(10, 0, 0, 0).PadX(8).PadY(3).Radius(8).Background(u.c.selected)
-		f.Text("系统 " + strconv.Itoa(systems) + " · 用户 " + strconv.Itoa(users)).FontSize(11).Color(u.c.muted)
-		f.Stack().Grow(1)
+	// Explicit groups and gaps keep text badges and buttons from touching at
+	// non-integer Windows DPI scales; margins on text are not a row spacer.
+	f.Row().FillWidth().Height(40).Gap(12).Items(flex.Center).Children(func() {
+		f.Row().Grow(1).Gap(10).Items(flex.Center).Children(func() {
+			f.Row().Gap(6).Items(flex.Center).Children(func() {
+				f.Icon(iconPhone).Size(18, 18).Color(u.c.blue)
+				f.Text("应用包").FontSize(15).Weight(ui.WeightSemibold)
+			})
+			f.Row().PadX(8).PadY(4).Radius(8).Background(u.c.selected).Children(func() {
+				f.Text(strconv.Itoa(len(listing.Apps)) + " 个应用").FontSize(11).Color(u.c.muted)
+			})
+			f.Text("系统 " + strconv.Itoa(systems) + " · 用户 " + strconv.Itoa(users)).FontSize(11).Color(u.c.muted)
+		})
 		if f.Button(u.id("apps-install"), "安装 APK").Small().Disabled(!ready).Clicked() {
 			u.pendingDialog = "apk"
 			u.dialogSerial = d.Serial
 			u.wake.Invalidate()
 		}
-		if f.Button(u.id("apps-refresh"), "刷新").Small().Disabled(!ready).Clicked() {
+		if f.Button(u.id("apps-refresh"), "刷新").Small().Outline().Disabled(!ready).Clicked() {
 			u.backend.FetchApps(d.Serial)
 		}
 	})

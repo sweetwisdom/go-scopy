@@ -3,6 +3,7 @@ package desktop
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/go-scopy/go-scopy/internal/buildinfo"
 	"github.com/go-scopy/go-scopy/internal/config"
 	"github.com/go-scopy/go-scopy/internal/domain"
+	"github.com/go-scopy/go-scopy/internal/fileview"
 	"github.com/go-scopy/go-scopy/internal/term"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/flex"
@@ -27,6 +29,7 @@ func palette(dark bool) colors {
 }
 
 type UI struct {
+	scripts                             scriptPanel
 	backend                             domain.Backend
 	state                               domain.State
 	tree                                ui.Tree
@@ -56,6 +59,7 @@ type UI struct {
 	deviceTab, termMode, termFocus      string
 	terminals                           map[string]*terminalPanel
 	files                               filesState
+	fileWeb                             fileWebState
 	apps                                appsState
 	vd                                  virtualDialog
 	terminalInput                       *app.TextInput
@@ -157,15 +161,16 @@ func (u *UI) readOptions() (domain.Options, error) {
 }
 
 func (u *UI) Config() app.Config {
+	u.initFileWeb()
 	return app.Config{Title: "Go-Scopy", Icon: brand.WindowIcon(), Class: "GoScopy.Desktop", Width: 1240, Height: 820, MinWidth: 1000, MinHeight: 700,
-		WindowMode: app.WindowCustomTitlebar, TitlebarHeight: 44, Tree: &u.tree, Invalidator: &u.wake,
+		Web: &u.fileWeb.host, WindowMode: app.WindowCustomTitlebar, TitlebarHeight: 44, Tree: &u.tree, Invalidator: &u.wake,
 		WindowControls: func() app.WindowControlsStyle {
 			return app.WindowControlsStyle{Foreground: u.c.muted, Hover: u.c.selected, Close: ui.RGB(220, 48, 54), CloseForeground: ui.RGB(255, 255, 255), Minimize: "最小化", Maximize: "最大化", Restore: "还原", CloseName: "关闭"}
 		},
 		TextInput: func(context app.TextInputContext) *app.TextInput {
 			if context.Terminal {
-				p := u.terminals[u.termFocus]
-				if p == nil {
+				p := u.focusedTerminal()
+				if context.ID != u.id("terminal-pane") || p == nil || p.stream == nil || p.exit != "" {
 					return nil
 				}
 				if u.terminalInput == nil {
@@ -175,6 +180,9 @@ func (u *UI) Config() app.Config {
 				cellW, cellH := float32(8), float32(16)
 				u.terminalInput.Bounds = ui.Rect{X: context.Bounds.X + float32(cursor.X)*cellW, Y: context.Bounds.Y + float32(cursor.Y)*cellH, Width: cellW, Height: cellH}
 				u.terminalInput.OnEvent = func(event app.TextEvent) (app.TextState, error) {
+					if u.focusedTerminal() != p || p.stream == nil || p.exit != "" {
+						return app.TextState{}, nil
+					}
 					switch event.Kind {
 					case app.TextInsert:
 						p.stream.Write([]byte(event.Text))
@@ -185,7 +193,7 @@ func (u *UI) Config() app.Config {
 				}
 				return u.terminalInput
 			}
-			return flex.Fields(&u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output, &u.deviceName, &u.deviceAddress, &u.newDeviceName, &u.vd.width, &u.vd.height, &u.vd.dpi, &u.files.search, &u.files.name, &u.apps.search)(context)
+			return flex.Fields(&u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output, &u.deviceName, &u.deviceAddress, &u.newDeviceName, &u.vd.width, &u.vd.height, &u.vd.dpi, &u.files.search, &u.files.name, &u.apps.search, &u.scripts.path, &u.scripts.python, &u.scripts.timeout)(context)
 		},
 		OnKey: func(e ui.KeyEvent) ui.EventResult {
 			for _, selectState := range []*flex.SelectState{&u.vd.imeSelect, &u.vd.appSelect} {
@@ -215,6 +223,7 @@ func (u *UI) Config() app.Config {
 				u.allowClose = allow
 				u.wake.Invalidate()
 			} else {
+				u.closeFileWeb()
 				u.closeTerminals()
 				u.closeSessionWindows()
 				allow()
@@ -228,12 +237,17 @@ func (u *UI) onWake() {
 	u.state = u.backend.State()
 	u.setTheme(u.state.Settings.Theme)
 	u.syncDevices()
+	u.filePageWake()
 	for _, session := range u.sessionWindows {
 		session.wake.Invalidate()
 	}
 	if u.pendingDialog != "" {
 		kind, serial := u.pendingDialog, u.dialogSerial
 		u.pendingDialog = ""
+		if kind == "file-workspace" {
+			u.openFileWebDialog()
+			return
+		}
 		if kind == "output" {
 			path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: "选择截图与录像保存目录"})
 			if err != nil {
@@ -244,6 +258,12 @@ func (u *UI) onWake() {
 			return
 		}
 		filter := app.FileFilter{Name: "可执行文件", Pattern: "*.exe"}
+		if kind == "script-file" {
+			filter = app.FileFilter{Name: "Python 脚本", Pattern: "*.py"}
+		}
+		if kind == "script-python" {
+			filter = app.FileFilter{Name: "Python 解释器", Pattern: "*"}
+		}
 		if kind == "apk" {
 			filter = app.FileFilter{Name: "Android 应用", Pattern: "*.apk"}
 		}
@@ -252,6 +272,11 @@ func (u *UI) onWake() {
 			u.notice = err.Error()
 		} else if len(paths) > 0 {
 			switch kind {
+			case "script-file":
+				u.scripts.path.SetText(paths[0])
+				u.scripts.trusted = false
+			case "script-python":
+				u.scripts.python.SetText(paths[0])
 			case "apk":
 				u.backend.Install(serial, paths[0])
 			case "upload":
@@ -272,6 +297,7 @@ func (u *UI) dialog(kind string) {
 }
 
 func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
+	u.fileWeb.slotSet = false
 	u.terminalSlot = flex.Box{}
 	u.terminalSlotSet = false
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
@@ -296,6 +322,9 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 			})
 		})
 	})
+	if u.fileWeb.slotSet && u.fileWeb.page != nil {
+		canvas.NativeView(u.fileWeb.page.ID(), u.fileWeb.slot.Rect())
+	}
 	if u.terminalSlotSet {
 		u.paintTerminal(canvas, u.terminalSlot.Rect(), u.termMode)
 	}
@@ -504,6 +533,18 @@ func (u *UI) card(f *flex.Frame, build func()) {
 }
 
 func (u *UI) content(f *flex.Frame) {
+	// Web content owns its scrolling. Keep its native view out of a scrolling
+	// Viva parent so it can never cover the device header or shell chrome.
+	if u.section == "devices" && u.deviceTab == "files" && !u.connecting && !u.closing && !u.vd.open && u.fileWeb.err == "" {
+		if _, supported := u.backend.(fileview.Backend); supported && os.Getenv("VIVA_HEADLESS") != "1" {
+			for _, d := range u.state.Devices {
+				if d.Serial == u.selected {
+					f.Column().Grow(1).FillHeight().Pad(24).Children(func() { u.device(f, d) })
+					return
+				}
+			}
+		}
+	}
 	f.ScrollArea(u.id("content-scroll")).Grow(1).FillHeight().Pad(30).Gap(20).Children(func() {
 		if u.closing {
 			u.card(f, func() {
@@ -516,6 +557,8 @@ func (u *UI) content(f *flex.Frame) {
 					}
 					if f.Button(u.id("close-confirm"), "结束并退出").Destructive().Clicked() {
 						if u.allowClose != nil {
+							u.closeFileWeb()
+							u.closeTerminals()
 							u.closeSessionWindows()
 							u.allowClose()
 						}

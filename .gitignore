@@ -3,3 +3,9 @@
 /artifacts/
 /tools/
 *.test
+
+# Prepared platform-specific script runtime
+/resources/python/runtime/
+/resources/python/runtime.json
+/resources/python/runtime.json.tmp
+__pycache__/

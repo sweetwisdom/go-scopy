@@ -16,7 +16,10 @@ Go-Scopy 的应用代码采用 MIT 许可证。以下组件和资源保留各自
 | [SDL](https://github.com/libsdl-org/SDL) | scrcpy 原样附带的 SDL3.dll | zlib；`SDL-zlib.txt` |
 | [FFmpeg](https://ffmpeg.org/) | scrcpy 原样附带的 avcodec、avformat、avutil、swresample 动态库 | LGPL-2.1-or-later；`FFmpeg-LGPL-2.1.txt` |
 | [libusb](https://github.com/libusb/libusb) | scrcpy 原样附带的 libusb 动态库 | LGPL-2.1-or-later；`libusb-LGPL-2.1.txt` |
-| PandaKit（`resources/extra/common/panda-kit.jar`） | 用户提供的 Android 端应用信息与图标代理 | 闭源二进制；来源与再分发许可尚待确认，发布前须核验 |
+| Go-Scrcpy Agent（`resources/extra/common/go-scrcpy-agent.jar`） | Android 端应用信息与图标辅助服务，源码位于独立子项目 | 参考既有 PandaKit 协议与分析材料；公开分发前仍须核对源材料许可 |
+| CPython（用户自行安装，不随当前发行包分发） | PATH 或指定路径的独立脚本解释器 | PSF 及其自身第三方许可；由用户所用发行版提供 |
+| uiautomator2 3.7.1（用户自行安装） | Python UI 自动化 | MIT；安装发行版内保留 dist-info/LICENSE |
+| adbutils、Pillow、lxml、requests 等锁定依赖（不随当前包分发） | 用户 Python 自动化依赖 | 版本与哈希见 requirements.lock；许可由安装的各 wheel 提供 |
 
 Go-Scopy 没有迁入 escrcpy 的 Electron／Vue 界面、私有扩展或手机控制协议实现。离线导入仅原样复制清单中的公开工具资源，应用不链接这些工具；macOS 打包时重新进行 ad-hoc 签名，其余工具内容保持原样。Viva 的上游声明覆盖其内含的图标、文字数据等第三方材料。
 

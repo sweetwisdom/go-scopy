@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-scopy/go-scopy/internal/config"
 	"github.com/go-scopy/go-scopy/internal/domain"
+	"github.com/go-scopy/go-scopy/internal/fileview"
 	"github.com/go-scopy/go-scopy/internal/tools"
 )
 
@@ -22,6 +23,22 @@ func TestMain(m *testing.M) {
 	if os.Getenv("GOSCOPY_TOOL_HELPER") == "1" {
 		a := os.Args[1:]
 		joined := strings.Join(a, " ")
+		if strings.Contains(joined, "--serial") && os.Getenv("GOSCOPY_SESSION_HELPER_DIR") != "" {
+			runSessionHelper()
+			return
+		}
+		if strings.Contains(joined, "exec-out head -c") {
+			if expected := os.Getenv("GOSCOPY_PREVIEW_COMMAND"); expected != "" && a[len(a)-1] != expected {
+				fmt.Fprintln(os.Stderr, "remote command was not safely quoted")
+				os.Exit(1)
+			}
+			if os.Getenv("GOSCOPY_PREVIEW_LARGE") == "1" {
+				fmt.Print(strings.Repeat("x", 4096))
+			} else {
+				fmt.Print("error: ordinary file content\n中文")
+			}
+			os.Exit(0)
+		}
 		switch {
 		case strings.Contains(joined, "shell ip route"):
 			fmt.Println("10.155.160.0/24 dev rndis0 proto kernel scope link src 10.155.160.129")
@@ -250,5 +267,40 @@ func TestSavedWirelessDevicesRemainOfflineWithoutDuplicateTransports(t *testing.
 	s.Save(config.ForgetDevice(s.State().Settings, "10.168.2.20:5555"))
 	if task := taskResult(t, s); task.Status != "done" || len(s.State().Devices) != 2 {
 		t.Fatalf("forget failed: %+v", task)
+	}
+}
+
+func TestFilePreviewUsesRawBoundedOutputAndSafeDeviceQuoting(t *testing.T) {
+	s := testService(t)
+	remote := "/sdcard/中文 a'$(id);.txt"
+	t.Setenv("GOSCOPY_PREVIEW_COMMAND", "head -c 129 -- '/sdcard/中文 a'\\''$(id);.txt'")
+	data, err := s.ReadFilePreview(context.Background(), "test-serial", remote, 128)
+	if err != nil || !strings.HasPrefix(string(data), "error: ordinary") {
+		t.Fatalf("raw preview: %q %v", data, err)
+	}
+	t.Setenv("GOSCOPY_PREVIEW_LARGE", "1")
+	if _, err := s.ReadFilePreview(context.Background(), "test-serial", remote, 128); err == nil {
+		t.Fatal("oversized device output accepted")
+	}
+}
+
+func TestFileTasksKeepIDsAndProtectLocalDownloads(t *testing.T) {
+	s := testService(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("keep me"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	id := s.FileTask("test-serial", fileview.Operation{Action: "download", Path: "/sdcard/notes.txt", Target: dir})
+	task := taskResult(t, s)
+	if id == 0 || task.ID != id || task.Status != "error" {
+		t.Fatalf("download overwrite was not blocked: %+v", task)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "notes.txt"))
+	if string(data) != "keep me" {
+		t.Fatal("local file overwritten")
+	}
+	s.FileTask("test-serial", fileview.Operation{Action: "delete", Path: "/", Recursive: true})
+	if task := taskResult(t, s); task.Status != "error" {
+		t.Fatal("root deletion accepted")
 	}
 }

@@ -122,7 +122,7 @@ func ScrcpyArgs(serial string, o domain.Options, display *domain.VirtualDisplay,
 		if display.Width <= 0 || display.Height <= 0 {
 			return nil, errors.New("虚拟屏幕分辨率无效")
 		}
-		title = "Go-Scopy Virtual · " + serial
+		title = "Go-Scopy Virtual · " + display.StartApp + " · " + serial
 	}
 	a := []string{"--serial", serial, "--window-title", title, "--max-fps", strconv.Itoa(o.FPS), "--video-bit-rate", strconv.Itoa(o.Bitrate) + "M"}
 	if o.MaxSize > 0 {

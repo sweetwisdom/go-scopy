@@ -26,7 +26,7 @@ var (
 // ListApps reads the installed packages: paths and system/user split from pm,
 // versions from one dumpsys pass, sizes from batched du.
 func (t Tools) ListApps(ctx context.Context, serial string) ([]AppInfo, error) {
-	if apps, err := t.listAppsPanda(ctx, serial); err == nil && len(apps) > 0 {
+	if apps, err := t.listAppsAgent(ctx, serial); err == nil && len(apps) > 0 {
 		return apps, nil
 	}
 	// Keep initial listing responsive. Expensive package dumps and a du call

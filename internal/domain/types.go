@@ -3,6 +3,8 @@ package domain
 
 import (
 	"context"
+	"strconv"
+	"sync/atomic"
 	"time"
 )
 
@@ -60,7 +62,7 @@ func (s Settings) OptionsFor(serial string) Options {
 }
 
 // SessionKind separates a device's ordinary mirroring window from a virtual
-// display window; one device may run one of each at the same time.
+// display window; one device may run a mirror and multiple virtual displays.
 type SessionKind string
 
 const (
@@ -68,12 +70,21 @@ const (
 	SessionVirtual SessionKind = "virtual"
 )
 
-// SessionID names a session uniquely: a device may hold a mirror and a
-// virtual-display session at once.
+// SessionID is the stable per-device session key (used to reuse a mirror).
+// Virtual launches must use NewVirtualSessionID instead.
 func SessionID(serial string, kind SessionKind) string { return string(kind) + ":" + serial }
+
+var nextVirtualSession atomic.Uint64
+
+// NewVirtualSessionID allocates a distinct key for every launch, including
+// repeated launches of the same app. IDs only need to be unique in this process.
+func NewVirtualSessionID(serial string) string {
+	return SessionID(serial, SessionVirtual) + ":" + strconv.FormatUint(nextVirtualSession.Add(1), 10)
+}
 
 type Session struct {
 	ID, Serial, Status, Recording string
+	StartApp                      string
 	Kind                          SessionKind
 	Started                       time.Time
 }
@@ -89,13 +100,27 @@ type VirtualDisplay struct {
 
 // PhoneInfo is the device overview page's snapshot of one phone.
 type PhoneInfo struct {
-	Manufacturer, Model, AndroidVersion, APILevel string
-	WiFiSSID, IPAddress                           string
-	BatteryLevel                                  int    // 0–100; -1 when unknown
-	BatteryStatus                                 string // 充电中 / 已充满 / 放电中 / 未充电 / 未知
-	MemTotalKB, MemAvailableKB                    int64
-	StorageTotalBytes, StorageUsedBytes           int64
-	Error                                         string
+	Manufacturer, Brand, Model, Product, DeviceCode string
+	AndroidVersion, APILevel, SecurityPatch         string
+	SerialNumber, CPUABI, CPUABIs, Hardware, Board  string
+	BuildID, BuildDisplay, Fingerprint, Baseband    string
+	PhysicalSize, OverrideSize                      string
+	PhysicalDPI, OverrideDPI                        string
+	KernelVersion, BootloaderState, VerifiedBoot    string
+	Slot, StorageType, RootStatus                   string
+	UptimeSeconds                                   *int64
+	CPUFreqMinKHz, CPUFreqMaxKHz, CPUFreqCurKHz     *int64
+	WiFiSSID, IPAddress                             string
+	BatteryLevel                                    int // 0–100; -1 when unknown
+	BatteryStatus, BatteryHealth                    string
+	BatteryVoltageMV, BatteryTemperatureTenthsC     *int64
+	BatteryChargeCounterUAH, BatteryCurrentUA       *int64
+	MemTotalKB, MemAvailableKB                      int64 // available is -1 when unknown
+	StorageTotalBytes, StorageUsedBytes             int64
+	Loading                                         bool
+	UpdatedAt                                       time.Time
+	Warnings                                        []string
+	Error                                           string
 }
 
 // FileEntry is one row of a device directory listing.
@@ -113,7 +138,7 @@ type FileListing struct {
 	Error   string
 }
 
-// AppInfo is one installed application. PandaKit may return the label and icon
+// AppInfo is one installed application. Go-Scrcpy Agent may return the label and icon
 // alongside the package metadata; APK parsing remains the fallback.
 type AppInfo struct {
 	Package     string
@@ -200,7 +225,8 @@ type Backend interface {
 	AppUninstall(serial, pkg string, system bool)
 
 	// Terminal opens an interactive shell or a logcat stream on a pseudo
-	// terminal. The returned Terminal is owned by the caller.
+	// terminal. The returned Terminal is owned by the caller; failures return
+	// a nil interface, never a typed-nil pointer.
 	OpenShell(serial string, cols, rows int, notify func()) (Terminal, error)
 	OpenLogcat(serial string, cols, rows int, notify func()) (Terminal, error)
 }

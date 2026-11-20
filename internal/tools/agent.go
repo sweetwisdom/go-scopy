@@ -15,24 +15,24 @@ import (
 )
 
 const (
-	pandaDeviceJar = "/data/local/tmp/panda-kit.jar"
-	pandaSocket    = "localabstract:panda-1.1.0"
-	pandaMaxBlock  = 16 << 20
+	agentDeviceJar = "/data/local/tmp/go-scrcpy-agent.jar"
+	agentSocket    = "localabstract:go-scrcpy-agent"
+	agentMaxBlock  = 16 << 20
 )
 
-// listAppsPanda asks the on-device Android PackageManager for the complete
+// listAppsAgent asks the on-device Android PackageManager for the complete
 // app metadata and rendered PNG icons in one round trip.
-func (t Tools) listAppsPanda(ctx context.Context, serial string) ([]AppInfo, error) {
-	apps, err := t.readPandaApps(ctx, serial)
+func (t Tools) listAppsAgent(ctx context.Context, serial string) ([]AppInfo, error) {
+	apps, err := t.readAgentApps(ctx, serial)
 	if err == nil {
 		return apps, nil
 	}
-	if startErr := t.startPanda(ctx, serial); startErr != nil {
+	if startErr := t.startAgent(ctx, serial); startErr != nil {
 		return nil, errors.Join(err, startErr)
 	}
 	var last error = err
 	for i := 0; i < 12; i++ {
-		apps, last = t.readPandaApps(ctx, serial)
+		apps, last = t.readAgentApps(ctx, serial)
 		if last == nil {
 			return apps, nil
 		}
@@ -42,11 +42,11 @@ func (t Tools) listAppsPanda(ctx context.Context, serial string) ([]AppInfo, err
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
-	return nil, fmt.Errorf("PandaKit 启动后读取应用失败：%w", last)
+	return nil, fmt.Errorf("Go-Scrcpy Agent 启动后读取应用失败：%w", last)
 }
 
-func (t Tools) readPandaApps(ctx context.Context, serial string) ([]AppInfo, error) {
-	conn, port, err := t.forwardPanda(ctx, serial)
+func (t Tools) readAgentApps(ctx context.Context, serial string) ([]AppInfo, error) {
+	conn, port, err := t.forwardAgent(ctx, serial)
 	if err != nil {
 		return nil, err
 	}
@@ -64,23 +64,23 @@ func (t Tools) readPandaApps(ctx context.Context, serial string) ([]AppInfo, err
 			return nil, err
 		}
 	}
-	if _, err := readPandaBlock(conn); err != nil { // default icon
-		return nil, fmt.Errorf("读取 PandaKit 默认图标：%w", err)
+	if _, err := readAgentBlock(conn); err != nil { // default icon
+		return nil, fmt.Errorf("读取 Go-Scrcpy Agent 默认图标：%w", err)
 	}
 	var count int32
 	if err := binary.Read(conn, binary.BigEndian, &count); err != nil {
 		return nil, err
 	}
 	if count < 0 || count > 10000 {
-		return nil, fmt.Errorf("PandaKit 返回了无效应用数量：%d", count)
+		return nil, fmt.Errorf("Go-Scrcpy Agent 返回了无效应用数量：%d", count)
 	}
 	apps := make([]AppInfo, 0, count)
 	for i := int32(0); i < count; i++ {
-		pkg, err := readPandaString(conn)
+		pkg, err := readAgentString(conn)
 		if err != nil {
 			return nil, fmt.Errorf("读取第 %d 个应用包名：%w", i, err)
 		}
-		version, err := readPandaString(conn)
+		version, err := readAgentString(conn)
 		if err != nil {
 			return nil, err
 		}
@@ -88,7 +88,7 @@ func (t Tools) readPandaApps(ctx context.Context, serial string) ([]AppInfo, err
 		if err = binary.Read(conn, binary.BigEndian, &versionCode); err != nil {
 			return nil, err
 		}
-		label, err := readPandaString(conn)
+		label, err := readAgentString(conn)
 		if err != nil {
 			return nil, err
 		}
@@ -101,7 +101,7 @@ func (t Tools) readPandaApps(ctx context.Context, serial string) ([]AppInfo, err
 		}
 		// installer and CPU architecture
 		for n := 0; n < 2; n++ {
-			if _, err = readPandaString(conn); err != nil {
+			if _, err = readAgentString(conn); err != nil {
 				return nil, err
 			}
 		}
@@ -112,11 +112,11 @@ func (t Tools) readPandaApps(ctx context.Context, serial string) ([]AppInfo, err
 				return nil, err
 			}
 		}
-		_, err = readPandaBool(conn) // has splits
+		_, err = readAgentBool(conn) // has splits
 		if err != nil {
 			return nil, err
 		}
-		canLaunch, err := readPandaBool(conn)
+		canLaunch, err := readAgentBool(conn)
 		if err != nil {
 			return nil, err
 		}
@@ -126,7 +126,7 @@ func (t Tools) readPandaApps(ctx context.Context, serial string) ([]AppInfo, err
 				return nil, err
 			}
 		}
-		icon, err := readPandaBlock(conn)
+		icon, err := readAgentBlock(conn)
 		if err != nil {
 			return nil, fmt.Errorf("读取 %s 图标：%w", pkg, err)
 		}
@@ -138,8 +138,8 @@ func (t Tools) readPandaApps(ctx context.Context, serial string) ([]AppInfo, err
 	return apps, nil
 }
 
-func (t Tools) forwardPanda(ctx context.Context, serial string) (net.Conn, string, error) {
-	out, err := t.Device(ctx, serial, "forward", "tcp:0", pandaSocket)
+func (t Tools) forwardAgent(ctx context.Context, serial string) (net.Conn, string, error) {
+	out, err := t.Device(ctx, serial, "forward", "tcp:0", agentSocket)
 	if err != nil {
 		return nil, "", err
 	}
@@ -155,59 +155,59 @@ func (t Tools) forwardPanda(ctx context.Context, serial string) (net.Conn, strin
 	return conn, port, nil
 }
 
-func (t Tools) startPanda(ctx context.Context, serial string) error {
-	jar, err := t.pandaJarPath()
+func (t Tools) startAgent(ctx context.Context, serial string) error {
+	jar, err := t.agentJarPath()
 	if err != nil {
 		return err
 	}
-	if _, err = t.Device(ctx, serial, "push", jar, pandaDeviceJar); err != nil {
-		return fmt.Errorf("部署 PandaKit：%w", err)
+	if _, err = t.Device(ctx, serial, "push", jar, agentDeviceJar); err != nil {
+		return fmt.Errorf("部署 Go-Scrcpy Agent：%w", err)
 	}
-	command := "CLASSPATH=" + pandaDeviceJar + " app_process / com.panda.Main >/dev/null 2>&1 &"
+	command := "CLASSPATH=" + agentDeviceJar + " app_process / io.github.goscrcpy.agent.Main daemon >/dev/null 2>&1 &"
 	if _, err = t.Device(ctx, serial, "shell", command); err != nil {
-		return fmt.Errorf("启动 PandaKit：%w", err)
+		return fmt.Errorf("启动 Go-Scrcpy Agent：%w", err)
 	}
 	return nil
 }
 
-func (t Tools) pandaJarPath() (string, error) {
+func (t Tools) agentJarPath() (string, error) {
 	candidates := []string{}
 	if t.Root != "" {
 		candidates = append(candidates,
-			filepath.Join(t.Root, "tools", "scrcpy", "panda-kit.jar"),
-			filepath.Join(t.Root, "..", "Resources", "tools", "scrcpy", "panda-kit.jar"),
-			filepath.Join(t.Root, "resources", "extra", "common", "panda-kit.jar"))
+			filepath.Join(t.Root, "tools", "scrcpy", "go-scrcpy-agent.jar"),
+			filepath.Join(t.Root, "..", "Resources", "tools", "scrcpy", "go-scrcpy-agent.jar"),
+			filepath.Join(t.Root, "resources", "extra", "common", "go-scrcpy-agent.jar"))
 	}
 	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(cwd, "resources", "extra", "common", "panda-kit.jar"))
+		candidates = append(candidates, filepath.Join(cwd, "resources", "extra", "common", "go-scrcpy-agent.jar"))
 	}
 	for _, candidate := range candidates {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			return candidate, nil
 		}
 	}
-	return "", errors.New("找不到 PandaKit：resources/extra/common/panda-kit.jar")
+	return "", errors.New("找不到 Go-Scrcpy Agent：resources/extra/common/go-scrcpy-agent.jar")
 }
 
-func readPandaBlock(r io.Reader) ([]byte, error) {
+func readAgentBlock(r io.Reader) ([]byte, error) {
 	var size int32
 	if err := binary.Read(r, binary.BigEndian, &size); err != nil {
 		return nil, err
 	}
-	if size < 0 || size > pandaMaxBlock {
-		return nil, fmt.Errorf("PandaKit 数据块长度无效：%d", size)
+	if size < 0 || size > agentMaxBlock {
+		return nil, fmt.Errorf("Go-Scrcpy Agent 数据块长度无效：%d", size)
 	}
 	data := make([]byte, size)
 	_, err := io.ReadFull(r, data)
 	return data, err
 }
 
-func readPandaString(r io.Reader) (string, error) {
-	data, err := readPandaBlock(r)
+func readAgentString(r io.Reader) (string, error) {
+	data, err := readAgentBlock(r)
 	return string(data), err
 }
 
-func readPandaBool(r io.Reader) (bool, error) {
+func readAgentBool(r io.Reader) (bool, error) {
 	var value int32
 	err := binary.Read(r, binary.BigEndian, &value)
 	return value != 0, err

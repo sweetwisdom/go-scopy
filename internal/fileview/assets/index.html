@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Go-Scopy 文件工作台</title>
+<link rel="stylesheet" href="workspace.css">
+<script type="module" src="workspace.js"></script>
+</head>
+<body>
+<main id="workspace" aria-label="设备文件管理">
+<header class="toolbar">
+ <div class="workspace-title"><span class="eyebrow">DEVICE FILES</span><strong>文件工作台</strong></div>
+ <span id="connection" class="connection">正在连接</span><div class="spacer"></div>
+ <button id="upload" class="primary" title="选择本地文件上传，同名文件需要确认">上传文件</button>
+ <button id="mkdir" title="新建文件夹">新建文件夹</button>
+ <button id="refresh" class="icon-button" aria-label="刷新目录" title="刷新目录 (Ctrl+R)"></button>
+</header>
+<nav class="addressbar" aria-label="路径导航">
+ <button id="back" class="icon-button" aria-label="后退" title="后退"></button>
+ <button id="forward" class="icon-button" aria-label="前进" title="前进"></button>
+ <button id="up" class="icon-button" aria-label="上级目录" title="上级目录 (Backspace)"></button>
+ <form id="path-form"><input id="path" aria-label="设备路径" value="/sdcard" autocomplete="off" spellcheck="false"><button type="submit" class="icon-button" aria-label="打开路径" title="打开路径"></button></form>
+</nav>
+<nav class="quicknav" aria-label="常用目录">
+ <button data-path="/sdcard">内部存储</button><button data-path="/sdcard/DCIM">相机</button><button data-path="/sdcard/Pictures">图片</button><button data-path="/sdcard/Download">下载</button><button data-path="/sdcard/Documents">文档</button>
+</nav>
+<section class="browser-tools">
+ <label class="search"><span id="search-icon"></span><input id="search" type="search" placeholder="筛选当前目录…" aria-label="筛选当前目录"></label>
+ <select id="sort" aria-label="文件排序"><option value="name">名称 A → Z</option><option value="name-desc">名称 Z → A</option><option value="date">修改时间 ↓</option><option value="size">文件大小 ↓</option></select>
+ <div class="view-switch" aria-label="显示方式"><button id="view-list" class="icon-button active" aria-label="列表视图" aria-pressed="true"></button><button id="view-grid" class="icon-button" aria-label="网格视图" aria-pressed="false"></button></div>
+</section>
+<div class="workarea">
+ <section class="file-area" aria-label="文件列表">
+  <div class="selectionbar"><label class="select-all"><input id="select-all" type="checkbox" aria-label="全选当前筛选结果"><span id="selection-count">选择文件</span></label><div class="spacer"></div><button id="preview" class="text-button" disabled>预览</button><button id="rename" class="text-button" disabled>重命名</button><button id="download" class="text-button" disabled>下载</button><button id="delete" class="text-button danger" disabled>删除</button></div>
+  <div class="column-head"><span>名称</span><span>大小</span><span>修改时间</span></div>
+  <div id="files" class="files" tabindex="0" aria-label="当前目录文件" aria-busy="false"></div>
+  <div id="empty" class="empty" hidden></div>
+ </section>
+ <aside id="preview-pane" class="preview-pane" aria-label="文件预览">
+  <div class="preview-heading"><span>文件预览</span><div class="spacer"></div><button id="close-preview" class="icon-button" aria-label="关闭预览" title="关闭预览"></button></div>
+  <div id="preview-content" class="preview-content"></div>
+ </aside>
+</div>
+<footer class="statusbar"><span id="summary">等待设备文件</span><div class="spacer"></div><button id="show-tasks" class="text-button">传输与操作 <span id="task-count">0</span></button></footer>
+<section id="tasks" class="tasks" aria-label="传输与操作记录" hidden><div class="tasks-heading"><strong>传输与操作</strong><span>详细结果也可在任务中心查看</span><button id="close-tasks" class="icon-button" aria-label="收起任务"></button></div><div id="task-list"></div></section>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<dialog id="modal" aria-labelledby="modal-title"><form id="modal-form"><div class="eyebrow">FILE ACTION</div><h2 id="modal-title"></h2><p id="modal-description"></p><input id="modal-input" aria-label="名称" autocomplete="off" spellcheck="false"><div id="modal-error" class="modal-error" role="alert"></div><div class="modal-actions"><button id="modal-cancel" type="button">取消</button><button id="modal-submit" type="submit" class="primary">确定</button></div></form></dialog>
+</main>
+</body>
+</html>

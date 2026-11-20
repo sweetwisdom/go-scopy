@@ -1,0 +1,2 @@
+# Direct dependency; transitive dependencies and hashes are in requirements.lock.
+uiautomator2==3.7.1

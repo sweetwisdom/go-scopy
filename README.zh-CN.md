@@ -24,8 +24,9 @@
 - **录屏与截图** — 录制投屏画面、保存手机截图，按需开启音频转发，并自定义保存位置。
 - **Windows 灵动岛控制窗** — 小巧的悬浮胶囊，点击展开手机操作，自由拖动并吸附屏幕边缘。投屏保留 scrcpy 原生窗口，控制窗独立摆放。
 - **按设备保存偏好** — 调整分辨率上限、帧率、码率、音频和置顶选项，为单台设备保存配置，或设为全局默认。
+- **Web 文件工作台** — 内嵌列表／网格、多选、路径导航和文件操作状态；可只读预览图片、UTF-8 文本／代码，以及系统 WebView 支持的音视频。缺少 WebView 时回退原生文件页。
 - **设备工作台** — 查看设备、电池、内存与存储概况，管理设备文件和已安装应用（导出／备份／卸载）。
-- **设备终端与虚拟屏幕** — 提供交互式 Shell、实时 Logcat 与独立虚拟显示器；可按需选择 SDK／UHID 键盘模式。
+- **设备终端与虚拟屏幕** — 提供交互式 Shell、实时 Logcat；同设备可同时启动多个独立虚拟 App 窗口，与普通投屏并行，分别显示/停止会话。同一 App 重复启动仍受 Android 任务与多显示器支持限制；可按需选择 SDK／UHID 键盘模式。
 - **日常操作更集中** — 安装 APK，在任务中心查看操作结果，自由切换浅色与深色主题。
 
 ## 桌面平台
@@ -43,3 +44,7 @@
 基于 [Viva](https://github.com/vivaui/viva) 与 [scrcpy](https://github.com/Genymobile/scrcpy) 构建，参考 [GoIM](https://github.com/Ezreal-byte/GoIM) 与 [escrcpy](https://github.com/viarotel-org/escrcpy)。
 
 [MIT 许可证](LICENSE) · [第三方声明](THIRD_PARTY_NOTICES.md)
+
+## Python automation / Python 脚本
+
+支持按设备运行本地 Python 脚本、实时日志、超时和停止。UI 自动化使用 uiautomator2，独立运行于 PATH 默认的 Python 环境，也可手动指定解释器。发行包不携带 Python 解释器或第三方依赖。准备与使用见 [Python 脚本文档](docs/python-scripting.md)。

@@ -18,7 +18,7 @@ var nextSessionWindow atomic.Uint64
 type sessionWindow struct {
 	owner                         *UI
 	serial, name                  string
-	session                       string // domain.SessionID of this window
+	session                       string // unique session key of this window
 	kind                          domain.SessionKind
 	display                       *domain.VirtualDisplay
 	options                       domain.Options
@@ -51,6 +51,9 @@ func (u *UI) openSessionWindow(serial string, kind domain.SessionKind, display *
 		return false
 	}
 	session := domain.SessionID(serial, kind)
+	if kind == domain.SessionVirtual {
+		session = domain.NewVirtualSessionID(serial)
+	}
 	if existing := u.sessionWindows[session]; existing != nil {
 		if !existing.ended {
 			existing.window.Show()
@@ -69,6 +72,9 @@ func (u *UI) openSessionWindow(serial string, kind domain.SessionKind, display *
 	prefix := "Go-Scopy Island"
 	if kind == domain.SessionVirtual {
 		prefix = "Go-Scopy Virtual"
+		if display != nil {
+			name = u.virtualAppLabel(serial, display.StartApp) + " · " + name
+		}
 	}
 	title := fmt.Sprintf("%s · %s · #%d", prefix, name, nextSessionWindow.Add(1))
 	ctx, cancel := context.WithCancel(context.Background())

@@ -60,7 +60,7 @@ func (u *UI) virtualDisplayCard(f *flex.Frame) {
 		f.Row().FillWidth().Items(flex.Center).Children(func() {
 			f.Column().Grow(1).Gap(4).Children(func() {
 				f.Text("配置虚拟显示").FontSize(18).Weight(ui.WeightSemibold)
-				u.small(f, "配置虚拟显示器的参数并选择要运行的应用。")
+				u.small(f, "每次启动创建一个独立窗口，可与其他虚拟屏幕同时运行。")
 			})
 			if f.Button(u.id("vd-close"), "✕").Ghost().Small().Clicked() {
 				u.vd.open = false
@@ -125,10 +125,7 @@ func (u *UI) virtualDisplayCard(f *flex.Frame) {
 			if a.System {
 				continue
 			}
-			name := u.state.AppMetas[u.vd.serial+"\x00"+a.Package].Label
-			if name == "" {
-				name = a.Package
-			}
+			name := u.virtualAppLabel(u.vd.serial, a.Package)
 			u.vd.appPackages = append(u.vd.appPackages, a.Package)
 			labels = append(labels, name)
 		}
@@ -176,5 +173,8 @@ func (u *UI) launchVirtualDialog() {
 		return
 	}
 	u.vd.open = false
-	u.openSessionWindow(u.vd.serial, domain.SessionVirtual, &display, u.state.Settings.OptionsFor(u.vd.serial), false)
+	options := u.state.Settings.OptionsFor(u.vd.serial)
+	if !u.openSessionWindow(u.vd.serial, domain.SessionVirtual, &display, options, false) {
+		u.backend.StartVirtual(u.vd.serial, options, display, false)
+	}
 }

@@ -61,7 +61,12 @@ func (u *UI) ensureTerminal(mode string) *terminalPanel {
 		p.stream, err = u.backend.OpenShell(p.serial, 80, 24, notify)
 	}
 	if err != nil {
+		// Discard failed results before any repaint/drain/input can use them.
+		// A pointer returned as an interface may otherwise be a typed nil.
+		p.stream = nil
 		p.exit = "无法打开终端：" + err.Error()
+	} else if p.stream == nil {
+		p.exit = "无法打开终端：后端未返回会话"
 	}
 	u.terminals[key] = p
 	return p
@@ -86,6 +91,7 @@ func (u *UI) drainTerminals() {
 					p.exit = "会话已结束：" + err.Error()
 				}
 				p.stream.Close()
+				p.stream = nil
 			}
 		default:
 		}
@@ -100,15 +106,28 @@ func (u *UI) closeTerminals() {
 		}
 	}
 	u.terminals = nil
+	u.termFocus = ""
+}
+
+// focusedTerminal rejects stale focus after a page, device or stream switch.
+func (u *UI) focusedTerminal() *terminalPanel {
+	if u.section != "devices" || u.deviceTab != "terminal" || u.connecting || u.closing || u.vd.open {
+		return nil
+	}
+	p := u.terminals[u.termFocus]
+	if p == nil || p.serial != u.selected || p.mode != u.termMode {
+		return nil
+	}
+	return p
 }
 
 // terminalKey encodes one key event for the focused stream and returns true
 // when the terminal consumed it.
 func (u *UI) terminalKey(event ui.KeyEvent) bool {
-	if u.termFocus == "" {
+	if event.Target != u.id("terminal-pane") {
 		return false
 	}
-	p := u.terminals[u.termFocus]
+	p := u.focusedTerminal()
 	if p == nil || p.stream == nil || p.exit != "" {
 		return false
 	}
@@ -121,10 +140,10 @@ func (u *UI) terminalKey(event ui.KeyEvent) bool {
 
 // terminalWheel scrolls the focused terminal's scrollback.
 func (u *UI) terminalWheel(event ui.ScrollEvent) bool {
-	if u.termFocus == "" {
+	if event.Target != u.id("terminal-pane") {
 		return false
 	}
-	p := u.terminals[u.termFocus]
+	p := u.focusedTerminal()
 	if p == nil {
 		return false
 	}
@@ -167,7 +186,7 @@ func (u *UI) paintTerminal(canvas *ui.Canvas, rect ui.Rect, mode string) {
 	if cols != p.cols || rows != p.rows {
 		p.cols, p.rows = cols, rows
 		p.term.Resize(cols, rows)
-		if p.stream != nil {
+		if p.stream != nil && p.exit == "" {
 			p.stream.Resize(cols, rows)
 		}
 	}
@@ -358,6 +377,7 @@ func (u *UI) deviceTerminalPage(f *flex.Frame, d domain.Device) {
 	if u.termMode != "logcat" {
 		u.termMode = "shell"
 	}
+	p := u.ensureTerminal(u.termMode)
 	f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
 		for _, item := range []struct{ mode, label string }{{"shell", "Shell"}, {"logcat", "Logcat"}} {
 			if f.Button(u.id("term-"+item.mode), item.label).Small().Outline().Clicked() {
@@ -366,8 +386,15 @@ func (u *UI) deviceTerminalPage(f *flex.Frame, d domain.Device) {
 				u.wake.Invalidate()
 			}
 		}
+		if p != nil && p.exit != "" {
+			if f.Button(u.id("term-reconnect"), "重新连接").Small().Clicked() {
+				delete(u.terminals, p.key)
+				u.ensureTerminal(u.termMode)
+				u.wake.Invalidate()
+			}
+		}
 	})
-	p := u.ensureTerminal(u.termMode)
+	p = u.ensureTerminal(u.termMode)
 	if p != nil {
 		u.termFocus = p.key
 	}
