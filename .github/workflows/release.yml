@@ -116,4 +116,4 @@ jobs:
         run: |
           version="${PACKAGE_VERSION#v}"
           test "$(git rev-parse "v$version^{commit}")" = "$SOURCE_COMMIT"
-          gh release create "v$version" release/*.zip release/*.tar.gz release/*.dmg release/*.deb release/*.sha256 release/SHA256SUMS --target "$SOURCE_COMMIT" --title "Go-Scopy v$version" --notes-file release/RELEASE_NOTES.md
+          gh release create "v$version" release/*.zip release/*.tar.gz release/*.dmg release/*.deb release/*.sha256 release/SHA256SUMS --verify-tag --title "Go-Scopy v$version" --notes-file release/RELEASE_NOTES.md
