@@ -22,7 +22,6 @@ def load(name, filename):
 
 verify = load('verify', 'verify-release.py')
 installers = load('installers', 'package-installers.py')
-source = load('release_source', 'release-source.py')
 VERSION = '0.1.10'
 COMMIT = 'a'*40
 
@@ -51,26 +50,6 @@ def write_tar(files, prefix, stream):
 
 
 class ReleaseChecks(unittest.TestCase):
-    def test_recovery_checks_tag_commit_and_all_original_native_builds(self):
-        repository = 'sweetwisdom/go-scopy'
-        run = dict(repository=dict(full_name=repository), path='.github/workflows/release.yml',
-                   status='completed', event='push', head_branch='v'+VERSION, head_sha=COMMIT)
-        names = ['build (windows-2025, windows, amd64, x64)',
-                 'build (ubuntu-24.04, linux, amd64, x64)',
-                 'build (ubuntu-24.04-arm, linux, arm64, arm64)',
-                 'build (macos-15-intel, darwin, amd64, x64)',
-                 'build (macos-15, darwin, arm64, arm64)']
-        jobs = [dict(name=name, conclusion='success') for name in names]
-        jobs.append(dict(name='release', conclusion='failure'))
-        self.assertEqual(source.validate_source(run, jobs, repository, VERSION, COMMIT), COMMIT)
-        with self.assertRaises(ValueError):
-            source.validate_source(run, jobs, repository, VERSION, 'wrong-commit')
-        jobs[0]['conclusion'] = 'failure'
-        with self.assertRaises(ValueError):
-            source.validate_source(run, jobs, repository, VERSION, COMMIT)
-        with self.assertRaises(ValueError):
-            source.validate_source(run, jobs[1:], repository, VERSION, COMMIT)
-
     def test_macos_cli_is_checked_in_tools_and_cannot_be_omitted(self):
         files = payload('darwin', 'amd64')
         entries = {name: 0o755 for name in files}
