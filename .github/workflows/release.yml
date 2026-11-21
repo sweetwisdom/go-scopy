@@ -15,6 +15,11 @@ on:
         required: true
         default: false
         type: boolean
+      artifact_run_id:
+        description: Reuse five successful build artifacts from this Release run (blank rebuilds)
+        required: false
+        default: ''
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -22,6 +27,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch' || inputs.artifact_run_id == ''
     strategy:
       fail-fast: false
       matrix:
@@ -76,10 +82,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   release:
+    if: always() && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.artifact_run_id != ''))
     needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: read
     env:
       PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
       SOURCE_COMMIT: ${{ github.sha }}
@@ -87,11 +95,18 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
+      - name: Resolve and validate artifact source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+        run: python3 scripts/release-source.py
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: Go-Scopy-*
           merge-multiple: true
           path: release
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
       - name: Verify all nine packages and prepare checksums
         run: python3 scripts/verify-release.py
       - name: Publish GitHub Release

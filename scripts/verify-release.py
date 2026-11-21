@@ -57,7 +57,8 @@ def verify_payload(entries, read, prefix, target, version, commit):
     app = {'windows': 'Go-Scopy.exe', 'linux': 'Go-Scopy',
            'darwin': 'Go-Scopy.app/Contents/MacOS/Go-Scopy'}[system]
     executable = [app] + [tools + name + suffix for name in ('adb', 'scrcpy', 'fastboot')]
-    executable += [resources + 'go-scopy-script' + suffix]
+    cli = resources + 'tools/go-scopy-script' if system == 'darwin' else 'go-scopy-script' + suffix
+    executable += [cli]
     required = executable + [tools + name for name in ('scrcpy-server', 'source.json', 'go-scrcpy-agent.jar')]
     required += ['build-info.json']
     for relative in required:
@@ -134,6 +135,7 @@ def release_notes(version, commit):
     return f"""Go-Scopy v{version}
 
 ### 发布修复
+- 修正 macOS 脚本 CLI 的包内校验路径，支持复用已通过原生构建的产物恢复发布，并核对原构建与版本标签的来源一致性。
 - 修复 Linux/macOS 测试助手对 Unix SIGINT 的处理，避免停止会话测试错过中间状态而阻止打包；生产停止逻辑不变。
 - 发布流程拆分测试、静态检查和打包；支持仅验证，并校验版本标签与源提交一致。
 

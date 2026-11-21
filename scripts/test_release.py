@@ -22,6 +22,7 @@ def load(name, filename):
 
 verify = load('verify', 'verify-release.py')
 installers = load('installers', 'package-installers.py')
+source = load('release_source', 'release-source.py')
 VERSION = '0.1.10'
 COMMIT = 'a'*40
 
@@ -30,7 +31,10 @@ def payload(system, arch):
     resources = 'Go-Scopy.app/Contents/Resources/' if system == 'darwin' else ''
     app = {'windows': 'Go-Scopy.exe', 'darwin': 'Go-Scopy.app/Contents/MacOS/Go-Scopy', 'linux': 'Go-Scopy'}[system]
     suffix = '.exe' if system == 'windows' else ''
-    files = {app: b'app', resources + 'go-scopy-script' + suffix: b'cli', 'licenses/MIT.txt': b'MIT'}
+    # Model the packager's platform layouts, not the verifier's assumptions:
+    # macOS keeps the CLI beside scrcpy under Contents/Resources/tools.
+    cli = 'Go-Scopy.app/Contents/Resources/tools/go-scopy-script' if system == 'darwin' else 'go-scopy-script' + suffix
+    files = {app: b'app', cli: b'cli', 'licenses/MIT.txt': b'MIT'}
     for name in ('adb'+suffix, 'scrcpy'+suffix, 'fastboot'+suffix, 'scrcpy-server', 'source.json', 'go-scrcpy-agent.jar'):
         files[resources + 'tools/scrcpy/' + name] = b'tool'
     files['build-info.json'] = json.dumps(dict(os=system, arch=arch, version=VERSION, commit=COMMIT)).encode()
@@ -47,6 +51,40 @@ def write_tar(files, prefix, stream):
 
 
 class ReleaseChecks(unittest.TestCase):
+    def test_recovery_checks_tag_commit_and_all_original_native_builds(self):
+        repository = 'sweetwisdom/go-scopy'
+        run = dict(repository=dict(full_name=repository), path='.github/workflows/release.yml',
+                   status='completed', event='push', head_branch='v'+VERSION, head_sha=COMMIT)
+        names = ['build (windows-2025, windows, amd64, x64)',
+                 'build (ubuntu-24.04, linux, amd64, x64)',
+                 'build (ubuntu-24.04-arm, linux, arm64, arm64)',
+                 'build (macos-15-intel, darwin, amd64, x64)',
+                 'build (macos-15, darwin, arm64, arm64)']
+        jobs = [dict(name=name, conclusion='success') for name in names]
+        jobs.append(dict(name='release', conclusion='failure'))
+        self.assertEqual(source.validate_source(run, jobs, repository, VERSION, COMMIT), COMMIT)
+        with self.assertRaises(ValueError):
+            source.validate_source(run, jobs, repository, VERSION, 'wrong-commit')
+        jobs[0]['conclusion'] = 'failure'
+        with self.assertRaises(ValueError):
+            source.validate_source(run, jobs, repository, VERSION, COMMIT)
+        with self.assertRaises(ValueError):
+            source.validate_source(run, jobs[1:], repository, VERSION, COMMIT)
+
+    def test_macos_cli_is_checked_in_tools_and_cannot_be_omitted(self):
+        files = payload('darwin', 'amd64')
+        entries = {name: 0o755 for name in files}
+        verify.verify_payload(entries, files.__getitem__, '', ('darwin', 'amd64'), VERSION, COMMIT)
+        wrong = 'Go-Scopy.app/Contents/Resources/go-scopy-script'
+        actual = 'Go-Scopy.app/Contents/Resources/tools/go-scopy-script'
+        files[wrong] = files.pop(actual)
+        # Give the misplaced file a valid checksum: placement must still fail.
+        files['SHA256SUMS.txt'] = ''.join(f'{hashlib.sha256(data).hexdigest()}  {name}\n'
+                                        for name, data in files.items() if name != 'SHA256SUMS.txt').encode()
+        entries = {name: 0o755 for name in files}
+        with self.assertRaisesRegex(ValueError, 'Unchecked required payload: .*tools/go-scopy-script'):
+            verify.verify_payload(entries, files.__getitem__, '', ('darwin', 'amd64'), VERSION, COMMIT)
+
     def test_nine_targets_and_archive_contents(self):
         self.assertEqual(len(verify.targets(VERSION)), 9)
         with tempfile.TemporaryDirectory() as temporary:
