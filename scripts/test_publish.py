@@ -25,6 +25,9 @@ class PublishingChecks(unittest.TestCase):
     def test_source_version_and_tag_are_locked_before_build(self):
         self.assertEqual(release_plan.plan(VERSION, SOURCE, True, VERSION, SOURCE)['publish'], 'true')
         self.assertEqual(release_plan.plan(VERSION, SOURCE, False, VERSION)['publish'], 'false')
+        # New workflow scripts can rebuild the exact tagged app source without
+        # moving that existing version tag or taking assets from an earlier run.
+        self.assertEqual(release_plan.plan(VERSION, SOURCE, True, VERSION, SOURCE)['source'], SOURCE)
         for version, source, declared, tag in [('0.1.11', SOURCE, VERSION, SOURCE),
                                                (VERSION, 'short-sha', VERSION, SOURCE),
                                                (VERSION, SOURCE, VERSION, 'b'*40)]:
@@ -43,11 +46,11 @@ class PublishingChecks(unittest.TestCase):
         (root/'RELEASE_NOTES.md').write_text('Release notes')
         return publisher.assets_for_release(root, VERSION)
 
-    def test_uploads_exactly_nineteen_verified_assets(self):
+    def test_uploads_exactly_twenty_one_verified_assets(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             files = self.fixture_assets(root)
-            self.assertEqual(len(files), 19)
+            self.assertEqual(len(files), 21)
             (root/next(iter(publisher.verify.targets(VERSION)))).write_bytes(b'changed after verification')
             with self.assertRaises(ValueError):
                 publisher.assets_for_release(root, VERSION)

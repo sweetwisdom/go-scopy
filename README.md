@@ -56,7 +56,7 @@ Run trusted local Python scripts for a selected device, with live logs, timeouts
 
 ## Installation and screen previews (v0.1.12)
 
-- **Windows x64**: extract the ZIP and run `Go-Scopy.exe`.
+- **Windows x64**: run the `-setup.exe` installer, or extract the portable ZIP and run `Go-Scopy.exe`.
 - **macOS 13.0+**: choose the Intel or Apple Silicon DMG and drag `Go-Scopy.app` into Applications. Ad-hoc signed, not Apple-notarized. ZIP packages remain available.
 - **Linux x64 / ARM64**: on Ubuntu 24.04 or a compatible Debian environment, run `sudo apt install ./Go-Scopy-0.1.12-linux-amd64.deb` (use `arm64` on ARM64). Launch from the application menu or `go-scopy`. Removing the package leaves personal settings intact. Other distributions can use tar.gz with desktop/X11/XCB, xkbcommon, Vulkan, and libudev dependencies installed separately.
 - Device connection, reconnection, and entering the overview trigger a screenshot. Settings → General controls the interval: 5 seconds by default, 1–300 seconds, or 0 to disable periodic refresh. Refresh pauses outside the overview and while minimized. Previews stay in memory unless explicitly saved.

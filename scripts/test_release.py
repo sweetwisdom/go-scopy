@@ -50,6 +50,24 @@ def write_tar(files, prefix, stream):
 
 
 class ReleaseChecks(unittest.TestCase):
+    def test_windows_installer_checks_extracted_payload_without_running_setup(self):
+        files = payload('windows', 'amd64')
+        commands = []
+        def sevenzip(args, **kwargs):
+            commands.append(args)
+            if args[1] == 'x':
+                root = Path(next(arg[2:] for arg in args if arg.startswith('-o')))
+                for name, data in files.items():
+                    path = root/name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(data)
+            return subprocess.CompletedProcess(args, 0, stdout='Type = Nsis\nEverything is Ok\n')
+        with patch.object(verify.shutil, 'which', return_value='7z'), patch.object(verify.subprocess, 'run', sevenzip):
+            verify.verify_windows_installer(Path('setup.exe'), ('windows', 'amd64'), VERSION, COMMIT)
+            with self.assertRaises(ValueError):
+                verify.verify_windows_installer(Path('setup.exe'), ('windows', 'amd64'), VERSION, 'wrong-commit')
+        self.assertTrue(all(command[0] == '7z' for command in commands))
+
     def test_macos_cli_is_checked_in_tools_and_cannot_be_omitted(self):
         files = payload('darwin', 'amd64')
         entries = {name: 0o755 for name in files}
@@ -64,8 +82,8 @@ class ReleaseChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unchecked required payload: .*tools/go-scopy-script'):
             verify.verify_payload(entries, files.__getitem__, '', ('darwin', 'amd64'), VERSION, COMMIT)
 
-    def test_nine_targets_and_archive_contents(self):
-        self.assertEqual(len(verify.targets(VERSION)), 9)
+    def test_ten_targets_and_archive_contents(self):
+        self.assertEqual(len(verify.targets(VERSION)), 10)
         with tempfile.TemporaryDirectory() as temporary:
             for system, arch in [('windows', 'amd64'), ('darwin', 'arm64'), ('linux', 'amd64')]:
                 files = payload(system, arch)

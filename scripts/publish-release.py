@@ -28,7 +28,7 @@ def assets_for_release(root, version):
         checksum, name = line.split('  ', 1)
         verify.require(name in expected and name not in checksums, 'Unexpected/duplicate release checksum entry')
         checksums[name] = checksum
-    verify.require(set(checksums) == expected, 'Release must include all nine packages')
+    verify.require(set(checksums) == expected, 'Release must include all expected packages')
     files = []
     for name in sorted(expected):
         path = root/name

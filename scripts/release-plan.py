@@ -26,6 +26,9 @@ def main():
     tag_commit = None
     if publish:
         tag_commit = subprocess.check_output(['git', 'rev-parse', 'v'+version+'^{commit}'], text=True).strip()
+        # A dispatch may fix build orchestration without moving a published tag.
+        # Always build the application's exact tagged source.
+        source = tag_commit
     result = plan(version, source, publish, declared, tag_commit)
     with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as stream:
         for key, value in result.items():

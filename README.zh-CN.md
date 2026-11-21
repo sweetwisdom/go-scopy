@@ -53,7 +53,7 @@
 
 ## 安装与屏幕预览（v0.1.12）
 
-- **Windows x64**：下载 ZIP，解压运行 `Go-Scopy.exe`。
+- **Windows x64**：下载 `-setup.exe` 安装包运行安装，或使用 ZIP 绿色包，解压运行 `Go-Scopy.exe`。
 - **macOS 13.0+**：选择 Intel / Apple Silicon 对应的 DMG，将 `Go-Scopy.app` 拖到 Applications。仅提供 ad-hoc 签名，未经 Apple 公证；也保留 ZIP。
 - **Linux x64 / ARM64**：在 Ubuntu 24.04 或兼容 Debian 环境使用 `sudo apt install ./Go-Scopy-0.1.12-linux-amd64.deb`（ARM64 改为 `arm64`），从应用菜单或 `go-scopy` 启动。卸载 `sudo apt remove go-scopy` 不删除个人配置。其他发行版可使用 tar.gz 并自行安装图形桌面、X11/XCB、xkbcommon、Vulkan、libudev 等依赖。
 - 设备连接、重连和进入设备概况时立即刷新屏幕；设置 → 常规 → 设备屏幕预览可设置刷新间隔，默认 5 秒，1–300 秒可调，0 关闭定时刷新。离开概况页、最小化时暂停；截图仅保存在内存中，手动保存才生成文件。
