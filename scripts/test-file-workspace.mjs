@@ -51,6 +51,22 @@ try {
   }};
  });
  await page.goto(address);await page.locator('.file').first().waitFor();assert.equal(await page.locator('.file').count(),12);
+ // Right-click keeps a multi-selection and uses the same upload confirmations.
+ await page.locator('.file[data-name="notes.txt"]').click();
+ await page.locator('.file[data-name="device-config.json"]').click({modifiers:['Control']});
+ await page.locator('.file[data-name="notes.txt"]').click({button:'right'});
+ await page.getByRole('menu').waitFor();assert.match(await page.locator('#selection-count').textContent(),/2/);
+ assert.equal(await page.getByRole('menuitem',{name:'重命名',exact:true}).isDisabled(),true);
+ await page.keyboard.press('Escape');assert.equal(await page.getByRole('menu').count(),0);
+ await page.locator('.file[data-name="page.html"]').click({button:'right'});
+ assert.match(await page.locator('#selection-count').textContent(),/1/);
+ await page.getByRole('menuitem',{name:'上传文件夹…',exact:true}).click();
+ await page.getByRole('button',{name:'选择文件夹',exact:true}).click();
+ await page.waitForFunction(()=>window.__requests.some(m=>m.action==='uploadFolder'&&m.confirmed));
+ await page.locator('#upload').click();await page.getByRole('button',{name:'选择文件',exact:true}).click();
+ await page.waitForFunction(()=>window.__requests.some(m=>m.action==='upload'&&m.confirmed));
+ await page.locator('.file[data-name="notes.txt"]').click({button:'right'});
+ await page.locator('#path').click();assert.equal(await page.getByRole('menu').count(),0);
  // Navigation history is committed only after a successful directory read.
  await page.locator('[data-path="/sdcard/DCIM"]').click();await page.waitForFunction(()=>document.querySelector('#path').value==='/sdcard/DCIM');
  await page.locator('#back').click();await page.locator('.file').first().waitFor();assert.equal(await page.locator('#path').inputValue(),'/sdcard');
@@ -81,6 +97,6 @@ try {
  await page.locator('#close-preview').click();assert.equal(await page.locator('#preview-pane').isVisible(),false);
  await page.evaluate(()=>{window.__context.online=false;window.__send(window.__context);});assert.equal(await page.locator('#upload').isDisabled(),true);assert.match(await page.locator('#summary').textContent(),/离线/);
  await page.evaluate(()=>{window.__context.online=true;window.__send(window.__context);});await page.locator('.file').first().waitFor();
- assert.deepEqual(errors,[]);console.log('PASS: browser file workspace (navigation, search, sort, grid, text/image preview, inert HTML, create/rename/delete, cancellation, offline recovery, light/dark/compact).');
+ assert.deepEqual(errors,[]);console.log('PASS: browser file workspace (context menu, upload dispatch, navigation, search, sort, grid, text/image preview, inert HTML, create/rename/delete, cancellation, offline recovery, light/dark/compact).');
  console.log(`Screenshots: ${output}`);
 } finally {await browser?.close();await new Promise(resolve=>server.close(resolve));}

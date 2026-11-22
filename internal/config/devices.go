@@ -31,9 +31,16 @@ func EditDevice(s domain.Settings, previous, address, name string, wireless bool
 	s.DeviceNames = copyMap(s.DeviceNames)
 	s.SavedWireless = copyMap(s.SavedWireless)
 	s.Devices = copyMap(s.Devices)
+	s.VirtualDevices = copyMap(s.VirtualDevices)
 	if previous != "" && previous != address {
 		delete(s.DeviceNames, previous)
 		delete(s.SavedWireless, previous)
+		if prefs, exists := s.VirtualDevices[previous]; exists {
+			if _, occupied := s.VirtualDevices[address]; !occupied {
+				s.VirtualDevices[address] = prefs
+			}
+			delete(s.VirtualDevices, previous)
+		}
 		if options, exists := s.Devices[previous]; exists {
 			if _, occupied := s.Devices[address]; !occupied {
 				s.Devices[address] = options
@@ -56,8 +63,10 @@ func ForgetDevice(s domain.Settings, address string) domain.Settings {
 	s.DeviceNames = copyMap(s.DeviceNames)
 	s.SavedWireless = copyMap(s.SavedWireless)
 	s.Devices = copyMap(s.Devices)
+	s.VirtualDevices = copyMap(s.VirtualDevices)
 	delete(s.DeviceNames, address)
 	delete(s.SavedWireless, address)
 	delete(s.Devices, address)
+	delete(s.VirtualDevices, address)
 	return s
 }

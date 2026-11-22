@@ -173,6 +173,7 @@ func TestAppExportProgressLayouts(t *testing.T) {
 func TestAppExportRowMenuUsesPicker(t *testing.T) {
 	u, f, s := openExportUI(t, nil)
 	u.apps.menuFor = "com.demo"
+	u.apps.detailsSerial = u.selected
 	u.wake.Invalidate()
 	if err := s.Driver().Pump(); err != nil {
 		t.Fatal(err)

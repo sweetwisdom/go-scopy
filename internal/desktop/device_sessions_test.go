@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/headless"
 	"testing"
 	"time"
 
@@ -10,11 +11,13 @@ import (
 type virtualFixture struct {
 	*fixture
 	launches []domain.VirtualDisplay
+	options  []domain.Options
 }
 
 func (f *virtualFixture) StartVirtual(serial string, o domain.Options, d domain.VirtualDisplay, record bool) {
 	f.serial = serial
 	f.launches = append(f.launches, d)
+	f.options = append(f.options, o)
 }
 
 func TestVirtualLaunchFallsBackAndDoesNotReusePreviousLaunch(t *testing.T) {
@@ -64,4 +67,95 @@ func TestVirtualSessionListLayout(t *testing.T) {
 		t.Fatal("active virtual app missing from workspace")
 	}
 	clean(t, s)
+}
+
+func TestTabletPresetLaunchAndReturnToPhone(t *testing.T) {
+	t.Setenv("VIVA_HEADLESS", "1")
+	f := &virtualFixture{fixture: sample()}
+	f.state.Apps = map[string]domain.AppListing{"USB-DEMO-01": {Apps: []domain.AppInfo{{Package: "com.example"}}}}
+	u := New(f)
+	session, err := headless.Open(u.Config(), nil, headless.Options{Scale: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	click(t, session, "虚拟屏幕")
+	click(t, session, "平板横屏")
+	if u.vd.width.Text() != "1920" || u.vd.height.Text() != "1200" || u.vd.dpi.Text() != "240" {
+		t.Fatal("tablet preset not applied")
+	}
+	clean(t, session)
+	u.vd.selectedApp = "com.example"
+	u.launchVirtualDialog()
+	if len(f.launches) != 1 || f.launches[0].Width != 1920 || f.launches[0].Height != 1200 || f.launches[0].DPI != 240 {
+		t.Fatalf("wrong tablet launch: %+v", f.launches)
+	}
+	u.openVirtualDialog(u.selected)
+	u.selectVirtualPreset(screenTabletLandscape)
+	u.selectVirtualPreset(screenPhoneLandscape)
+	if u.vd.width.Text() != "2400" || u.vd.height.Text() != "1080" || u.vd.dpi.Text() != "420" {
+		t.Fatal("tablet settings leaked into phone preset")
+	}
+	u.selectVirtualPreset(screenPhonePortrait)
+	if u.vd.width.Text() != "1080" || u.vd.height.Text() != "2400" {
+		t.Fatal("phone portrait not restored")
+	}
+}
+
+func TestVirtualRemembersDeviceProfileAndAppAcrossUIRestart(t *testing.T) {
+	t.Setenv("VIVA_HEADLESS", "1")
+	f := &virtualFixture{fixture: sample()}
+	f.state.Apps = map[string]domain.AppListing{"USB-DEMO-01": {Apps: []domain.AppInfo{{Package: "com.example"}}}}
+	u := New(f)
+	u.openVirtualDialog(u.selected)
+	if !u.vd.destroy {
+		t.Fatal("new virtual screen would return tasks to the phone")
+	}
+	u.selectVirtualPreset(screenTabletLandscape)
+	u.vd.selectedApp = "com.example"
+	u.launchVirtualDialog()
+	if len(f.launches) != 1 || !f.launches[0].DestroyOnClose || f.launches[0].IMEPolicy != "local" || f.options[0].Keyboard != "uhid" {
+		t.Fatalf("wrong tablet lifecycle/input: %+v %+v", f.launches, f.options)
+	}
+	reopened := New(f)
+	reopened.openVirtualDialog("USB-DEMO-01")
+	if reopened.vd.selectedApp != "com.example" || reopened.vd.preset != screenTabletLandscape || reopened.vd.width.Text() != "1920" || reopened.vd.dpi.Text() != "240" || !reopened.vd.destroy || reopened.vd.keyboard != "uhid" {
+		t.Fatal("device profile not restored")
+	}
+	reopened.openVirtualDialog("192.168.1.28:37001")
+	if reopened.vd.selectedApp != "" || reopened.vd.preset != screenPhonePortrait {
+		t.Fatal("device preference leaked to another device")
+	}
+}
+
+func TestVirtualSettingsCanEditDefaultsAndOfflineDevice(t *testing.T) {
+	t.Setenv("VIVA_HEADLESS", "1")
+	f := sample()
+	u := New(f)
+	u.section = "settings"
+	u.category = "virtual"
+	cfg := u.Config()
+	cfg.Height = 700
+	s, err := headless.Open(cfg, nil, headless.Options{Scale: 1.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	click(t, s, "编辑默认参数")
+	click(t, s, "平板横屏")
+	click(t, s, "保存虚拟屏设置")
+	if f.state.Settings.VirtualDefaults.Preset != "tablet" || !f.state.Settings.VirtualDefaults.DestroyOnClose || f.state.Settings.VirtualDefaults.LastApp != "" {
+		t.Fatal("default profile not saved")
+	}
+	u.openVirtualPreferences("offline-device", true, false)
+	u.vd.lastApp.SetText("com.example.offline")
+	u.wake.Invalidate()
+	if err := s.Driver().Pump(); err != nil {
+		t.Fatal(err)
+	}
+	clean(t, s)
+	click(t, s, "保存虚拟屏设置")
+	if f.state.Settings.VirtualDevices["offline-device"].LastApp != "com.example.offline" {
+		t.Fatal("offline device profile not saved")
+	}
 }

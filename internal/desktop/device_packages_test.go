@@ -9,7 +9,9 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-scopy/go-scopy/internal/domain"
 	"github.com/vivaui/viva/headless"
@@ -149,7 +151,7 @@ func TestPackageKindFiltersAreClickable(t *testing.T) {
 			t.Fatalf("wrong visible rows: system=%v, user=%v", found["s.pkg"], found["u.pkg"])
 		}
 	}
-	assertRows(true, true)
+	assertRows(false, true)
 	click(t, s, "系统 1")
 	if u.apps.filter != "system" {
 		t.Fatal("system click ignored")
@@ -179,5 +181,118 @@ func TestPackageSearchCombinesKindAndAgentLabel(t *testing.T) {
 	got := u.filterApps("USB-DEMO-01", apps)
 	if len(got) != 1 || got[0].Package != "com.example.user" {
 		t.Fatalf("search must use Agent labels and respect kind: %+v", got)
+	}
+}
+
+func TestPackageSortKeepsUnknownLastAndDoesNotMutateListing(t *testing.T) {
+	u := New(sample())
+	apps := []domain.AppInfo{{Package: "unknown"}, {Package: "small", SizeBytes: 10, InstalledAt: time.Unix(1, 0)}, {Package: "large", SizeBytes: 20, InstalledAt: time.Unix(2, 0)}}
+	for _, key := range []string{"size", "date"} {
+		u.apps.sortKey = key
+		for _, desc := range []bool{false, true} {
+			u.apps.sortDesc = desc
+			got := u.filterApps("", apps)
+			want := "small"
+			if desc {
+				want = "large"
+			}
+			if got[0].Package != want || got[2].Package != "unknown" {
+				t.Fatalf("%s descending=%v: %+v", key, desc, got)
+			}
+		}
+	}
+	if apps[0].Package != "unknown" {
+		t.Fatal("sorting changed backend listing")
+	}
+}
+
+func TestPackageLongNamesAndScrollbar(t *testing.T) {
+	for _, width := range []int{1000, 1240, 1600, 1920} {
+		f := sample()
+		label := "这是一个需要完整展示的很长应用名称测试包含更多文字"
+		var apps []domain.AppInfo
+		for i := range 35 {
+			apps = append(apps, domain.AppInfo{Package: fmt.Sprintf("com.example.%02d", i), Label: label, SizeBytes: 1024})
+		}
+		f.state.Apps = map[string]domain.AppListing{"USB-DEMO-01": {Apps: apps}}
+		u := New(f)
+		u.deviceTab = "packages"
+		cfg := u.Config()
+		cfg.Width = width
+		session, err := headless.Open(cfg, nil, headless.Options{Scale: 1.5})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := session.Driver().Pump(); err != nil {
+			t.Fatal(err)
+		}
+		columns := map[int]int{1000: 2, 1240: 3, 1600: 4, 1920: 5}[width]
+		firstY := float32(-1)
+		firstRow := 0
+		for _, hit := range session.Snapshot().Hits {
+			if hit.Label != "⋮" {
+				continue
+			}
+			if firstY < 0 {
+				firstY = hit.Bounds.Y
+			}
+			if hit.Bounds.Y == firstY {
+				firstRow++
+			}
+		}
+		if firstRow != columns {
+			t.Fatalf("width %d: got %d grid columns, want %d", width, firstRow, columns)
+		}
+		bar, ok := session.Hit("应用列表滚动条")
+		if !ok {
+			t.Fatal("missing scrollbar")
+		}
+		if bar.Bounds.Y+bar.Bounds.Height > float32(cfg.Height-28) {
+			t.Fatalf("scrollbar outside viewport: %+v", bar.Bounds)
+		}
+		if err := session.Driver().Press(bar.Bounds.X+bar.Bounds.Width/2, bar.Bounds.Y+bar.Bounds.Height-2, ui.PointerButtonPrimary); err != nil {
+			t.Fatal(err)
+		}
+		if err := session.Driver().Release(bar.Bounds.X+bar.Bounds.Width/2, bar.Bounds.Y+bar.Bounds.Height-2, ui.PointerButtonPrimary); err != nil {
+			t.Fatal(err)
+		}
+		if u.view.ScrollState(u.id("apps-list-scroll")).Offset <= 0 {
+			t.Fatalf("scrollbar track did not scroll: grab=%v bar=%+v state=%+v", u.apps.scrollGrab, bar, u.view.ScrollState(u.id("apps-list-scroll")))
+		}
+		if err := session.Driver().Press(bar.Bounds.X+5, bar.Bounds.Y+2, ui.PointerButtonPrimary); err != nil {
+			t.Fatal(err)
+		}
+		if err := session.Driver().Move(bar.Bounds.X+5, bar.Bounds.Y+bar.Bounds.Height-2); err != nil {
+			t.Fatal(err)
+		}
+		if err := session.Driver().Release(bar.Bounds.X+5, bar.Bounds.Y+bar.Bounds.Height-2, ui.PointerButtonPrimary); err != nil {
+			t.Fatal(err)
+		}
+		state := u.view.ScrollState(u.id("apps-list-scroll"))
+		if state.Offset < state.Max()*0.9 {
+			t.Fatal("scrollbar drag did not reach list end")
+		}
+		u.view.ScrollState(u.id("apps-list-scroll")).ScrollTo(0)
+		u.wake.Invalidate()
+		if err := session.Driver().Pump(); err != nil {
+			t.Fatal(err)
+		}
+		var displayed strings.Builder
+		for _, text := range session.Snapshot().Texts {
+			displayed.WriteString(text.Value)
+		}
+		if !strings.Contains(displayed.String(), "更多文字") {
+			t.Fatal("long name was truncated")
+		}
+		clean(t, session)
+		if dir := os.Getenv("GOSCOPY_ARTIFACT_DIR"); dir != "" {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := session.Screenshot(filepath.Join(dir, fmt.Sprintf("packages-long-%d.png", width))); err != nil {
+				t.Fatal(err)
+			}
+		}
+		session.Close()
 	}
 }

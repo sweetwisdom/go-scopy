@@ -1,0 +1,4 @@
+interface:
+  display_name: "Go-Scopy 发布准备"
+  short_description: "同步中英文说明、更新日志和 Release 文案，按需更新版本与暂存代码"
+  default_prompt: "使用 $go-scopy-release-prep，根据本次实际改动更新 Go-Scopy 的中英文 README、CHANGELOG 和 Release 更新说明，不构建、不发布。"

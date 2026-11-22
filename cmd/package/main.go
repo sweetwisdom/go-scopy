@@ -200,7 +200,7 @@ func build() error {
 			return err
 		}
 	}
-	for _, dir := range []string{"licenses"} {
+	for _, dir := range []string{"licenses", ".imgs"} {
 		if err := copyTree(dir, filepath.Join(root, dir)); err != nil {
 			return err
 		}

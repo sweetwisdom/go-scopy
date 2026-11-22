@@ -281,7 +281,7 @@ func (u *UI) scriptPageMessage(raw string) {
 		var list scriptstore.Listing
 		list, err = files.ScriptFiles()
 		if err == nil {
-			err = app.OpenPath(list.Directory)
+			err = openLocalDirectory(list.Directory)
 		}
 	case "run":
 		runner, supported := u.backend.(domain.ScriptBackend)
@@ -322,7 +322,7 @@ func (u *UI) scriptPageMessage(raw string) {
 				if m.Action == "stop" {
 					runner.StopScript(r.ID)
 				} else {
-					err = app.OpenPath(r.OutputDir)
+					err = openLocalDirectory(r.OutputDir)
 				}
 				break
 			}

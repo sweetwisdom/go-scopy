@@ -130,7 +130,7 @@ func (u *UI) appExportStatus(f *flex.Frame, serial string) {
 				if task.Path != "" {
 					u.small(f, task.Path)
 					if f.Button(u.id(fmt.Sprintf("app-export-open-%d", task.ID)), "打开保存目录").Small().Outline().Clicked() {
-						if err := app.OpenPath(filepath.Dir(task.Path)); err != nil {
+						if err := openLocalDirectory(filepath.Dir(task.Path)); err != nil {
 							u.notice = err.Error()
 							u.wake.Invalidate()
 						}

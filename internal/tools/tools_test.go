@@ -151,3 +151,21 @@ func TestADBEnvironmentUsesOneLocalServer(t *testing.T) {
 		t.Fatal("local adb settings missing")
 	}
 }
+
+func TestVirtualScreenCloseAndChineseInputArguments(t *testing.T) {
+	options := domain.Options{FPS: 60, Bitrate: 8, Keyboard: domain.KeyboardUHID}
+	display := domain.VirtualDisplay{Width: 1920, Height: 1200, DPI: 240, SystemDecorations: true, DestroyOnClose: true, IMEPolicy: "local", StartApp: "com.example"}
+	args, err := ScrcpyArgs("device", options, &display, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "--no-vd-destroy-content") || !strings.Contains(joined, "--keyboard=uhid") || !strings.Contains(joined, "--display-ime-policy=local") {
+		t.Fatalf("wrong lifecycle/input flags: %q", args)
+	}
+	display.DestroyOnClose = false
+	args, err = ScrcpyArgs("device", options, &display, "")
+	if err != nil || !strings.Contains(strings.Join(args, " "), "--no-vd-destroy-content") {
+		t.Fatal("explicit task-migration preference ignored")
+	}
+}

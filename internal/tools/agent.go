@@ -26,7 +26,11 @@ const (
 // listAppsAgent asks the on-device Android PackageManager for the complete
 // app metadata and rendered PNG icons in one round trip.
 func (t Tools) listAppsAgent(ctx context.Context, serial string) ([]AppInfo, error) {
-	apps, err := t.readAgentApps(ctx, serial)
+	return t.listAppsAgentFiltered(ctx, serial, 3)
+}
+
+func (t Tools) listAppsAgentFiltered(ctx context.Context, serial string, flags int32) ([]AppInfo, error) {
+	apps, err := t.readAgentAppsFiltered(ctx, serial, flags)
 	if err == nil {
 		return apps, nil
 	}
@@ -35,7 +39,7 @@ func (t Tools) listAppsAgent(ctx context.Context, serial string) ([]AppInfo, err
 	}
 	var last error = err
 	for i := 0; i < 12; i++ {
-		apps, last = t.readAgentApps(ctx, serial)
+		apps, last = t.readAgentAppsFiltered(ctx, serial, flags)
 		if last == nil {
 			return apps, nil
 		}
@@ -49,6 +53,10 @@ func (t Tools) listAppsAgent(ctx context.Context, serial string) ([]AppInfo, err
 }
 
 func (t Tools) readAgentApps(ctx context.Context, serial string) ([]AppInfo, error) {
+	return t.readAgentAppsFiltered(ctx, serial, 3)
+}
+
+func (t Tools) readAgentAppsFiltered(ctx context.Context, serial string, flags int32) ([]AppInfo, error) {
 	conn, port, err := t.forwardAgent(ctx, serial)
 	if err != nil {
 		return nil, err
@@ -62,7 +70,7 @@ func (t Tools) readAgentApps(ctx context.Context, serial string) ([]AppInfo, err
 	} else {
 		_ = conn.SetDeadline(time.Now().Add(90 * time.Second))
 	}
-	for _, n := range []int32{10, 3, agentIconSize} {
+	for _, n := range []int32{10, flags, agentIconSize} {
 		if err := binary.Write(conn, binary.BigEndian, n); err != nil {
 			return nil, err
 		}
@@ -103,10 +111,10 @@ func readAgentAppsResponse(conn io.Reader) ([]AppInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		// install/update/last-used timestamps
-		for n := 0; n < 3; n++ {
-			var ignored int32
-			if err = binary.Read(conn, binary.BigEndian, &ignored); err != nil {
+		// Agent timestamps are Unix seconds.
+		var timestamps [3]int32
+		for n := range timestamps {
+			if err = binary.Read(conn, binary.BigEndian, &timestamps[n]); err != nil {
 				return nil, err
 			}
 		}
@@ -147,7 +155,11 @@ func readAgentAppsResponse(conn io.Reader) ([]AppInfo, error) {
 		if pkg == "" {
 			continue
 		}
-		apps = append(apps, AppInfo{Package: pkg, Label: label, IconPNG: icon, VersionName: version, VersionCode: strconv.FormatInt(versionCode, 10), SizeBytes: appSize, System: flags&1 != 0 || flags&128 != 0, CanLaunch: canLaunch})
+		installed := time.Time{}
+		if timestamps[0] > 0 {
+			installed = time.Unix(int64(timestamps[0]), 0)
+		}
+		apps = append(apps, AppInfo{InstalledAt: installed, Package: pkg, Label: label, IconPNG: icon, VersionName: version, VersionCode: strconv.FormatInt(versionCode, 10), SizeBytes: appSize, System: flags&1 != 0 || flags&128 != 0, CanLaunch: canLaunch})
 	}
 	return apps, nil
 }

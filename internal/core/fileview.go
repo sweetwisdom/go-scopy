@@ -83,7 +83,20 @@ func (s *Service) FileTask(serial string, op fileview.Operation) uint64 {
 			if op.Target == "" {
 				return "", "", errors.New("未选择本地文件")
 			}
-			_, err = s.tool.Push(ctx, serial, op.Target, remote)
+			info, statErr := os.Stat(op.Target)
+			if statErr != nil {
+				return "", "", statErr
+			}
+			destination := remote
+			if info.IsDir() {
+				// Pushing to the parent preserves the selected folder exactly once,
+				// including when an earlier upload already created it.
+				destination = path.Dir(remote)
+				if err = s.tool.MakeDir(ctx, serial, destination); err != nil {
+					return "", "", err
+				}
+			}
+			_, err = s.tool.Push(ctx, serial, op.Target, destination)
 		case "download":
 			target := op.Target
 			if target == "" {

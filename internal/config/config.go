@@ -17,7 +17,7 @@ import (
 
 func Default() domain.Settings {
 	home, _ := os.UserHomeDir()
-	return domain.Settings{ScreenPreviewIntervalSeconds: 5, Theme: "light", OutputDir: filepath.Join(home, "Videos", "Go-Scopy"), Defaults: domain.Options{MaxSize: 1920, FPS: 60, Bitrate: 8, Audio: true}, Devices: map[string]domain.Options{}}
+	return domain.Settings{VirtualDefaults: domain.DefaultVirtualPreferences(), ScreenPreviewIntervalSeconds: 5, Theme: "light", OutputDir: filepath.Join(home, "Videos", "Go-Scopy"), Defaults: domain.Options{MaxSize: 1920, FPS: 60, Bitrate: 8, Audio: true}, Devices: map[string]domain.Options{}}
 }
 
 func Directory() (string, error) {
@@ -62,7 +62,41 @@ func ValidateOptions(o domain.Options) error {
 	return nil
 }
 
+func ValidateVirtualPreferences(p domain.VirtualPreferences) error {
+	if p.Width <= 0 || p.Height <= 0 || p.DPI < 0 {
+		return errors.New("虚拟屏宽高必须为正整数，DPI 必须为非负整数")
+	}
+	if p.Keyboard != "" && p.Keyboard != "sdk" && p.Keyboard != "uhid" {
+		return errors.New("虚拟屏键盘模式无效")
+	}
+	switch p.Preset {
+	case "portrait", "landscape", "tablet":
+	default:
+		return errors.New("虚拟屏显示模式无效")
+	}
+	switch p.IMEPolicy {
+	case "", "local", "fallback", "hide":
+	default:
+		return errors.New("虚拟屏输入法策略无效")
+	}
+	if strings.ContainsAny(p.LastApp, " \t\r\n\x00") {
+		return errors.New("应用包名不能包含空白或控制字符")
+	}
+	return nil
+}
+
 func Validate(s domain.Settings) error {
+	if err := ValidateVirtualPreferences(s.VirtualOptionsFor("")); err != nil {
+		return err
+	}
+	for serial, p := range s.VirtualDevices {
+		if strings.TrimSpace(serial) == "" {
+			return errors.New("虚拟屏设备标识不能为空")
+		}
+		if err := ValidateVirtualPreferences(p); err != nil {
+			return err
+		}
+	}
 	if s.ScreenPreviewIntervalSeconds < 0 || s.ScreenPreviewIntervalSeconds > 300 {
 		return errors.New("截图自动刷新间隔应为 0–300 秒，0 表示关闭定时刷新")
 	}

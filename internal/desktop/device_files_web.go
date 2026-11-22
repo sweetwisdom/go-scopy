@@ -359,7 +359,7 @@ func (u *UI) filePageMessage(raw string) {
 		} else {
 			u.queueFileDialog(m)
 		}
-	case "upload":
+	case "upload", "uploadFolder":
 		if !m.Confirmed {
 			u.fileReply(m, nil, errors.New("上传前请确认目标目录及同名文件覆盖提示"))
 			return
@@ -473,8 +473,18 @@ func (u *UI) openFileWebDialog() {
 		u.fileReply(*m, nil, errors.New("设备或目录已切换"))
 		return
 	}
-	if m.Action == "upload" {
-		paths, err := app.OpenFiles(app.OpenFileOptions{Title: "上传到设备 · " + m.Path})
+	if m.Action == "upload" || m.Action == "uploadFolder" {
+		var paths []string
+		var err error
+		if m.Action == "uploadFolder" {
+			var folder string
+			folder, err = app.OpenDirectory(app.OpenDirectoryOptions{Title: "选择上传文件夹 · " + m.Path})
+			if folder != "" {
+				paths = []string{folder}
+			}
+		} else {
+			paths, err = app.OpenFiles(app.OpenFileOptions{Title: "选择上传文件（可多选） · " + m.Path, AllowMultiple: true})
+		}
 		if err != nil {
 			u.fileReply(*m, nil, err)
 			return

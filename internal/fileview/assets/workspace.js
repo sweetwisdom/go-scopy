@@ -1,3 +1,4 @@
+let contextMenu=null;
 import {validName, parentPath, joinPath, formatSize, kindOf, normalizeEntries, visibleEntries} from './model.mjs';
 
 if (!window.viva) window.viva={postMessage(){throw new Error('请从 Go-Scopy 打开文件工作台');}};
@@ -19,7 +20,7 @@ const pending=new Map(), tasks=new Map();
 function request(action, extra={}) {
  const id=++seq;
  return new Promise((resolve,reject) => {
-  const timer=setTimeout(() => { pending.delete(id); reject(new Error('操作超时，请刷新目录后重试')); }, ['upload','download'].includes(action)?600000:65000);
+  const timer=setTimeout(() => { pending.delete(id); reject(new Error('操作超时，请刷新目录后重试')); }, ['upload','uploadFolder','download'].includes(action)?600000:65000);
   pending.set(id,{resolve,reject,timer});
   try { window.viva.postMessage(JSON.stringify({id,action,serial:context.serial,path:dir,...extra})); }
   catch(error) { clearTimeout(timer); pending.delete(id); reject(error); }
@@ -34,7 +35,7 @@ function updateActions() {
  $('selection-count').textContent=items.length ? `已选 ${items.length} 项` : '选择文件';
  $('preview').disabled=!online || !one || items[0].isDir; $('rename').disabled=!online || !one;
  $('download').disabled=!online || !items.length; $('delete').disabled=!online || !items.length;
- for (const id of ['upload','mkdir']) $(id).disabled=!online; $('refresh').disabled=!context.online; $('up').disabled=!context.online || dir==='/';
+ for (const id of ['upload','upload-folder','mkdir']) $(id).disabled=!online; $('refresh').disabled=!context.online; $('up').disabled=!context.online || dir==='/';
  $('back').disabled=historyAt<=0; $('forward').disabled=historyAt>=history.length-1;
  const list=visible(), count=list.filter(e=>selected.has(e.name)).length;
  $('select-all').checked=list.length>0 && count===list.length; $('select-all').indeterminate=count>0 && count<list.length; $('select-all').disabled=loading || !context.online || !list.length;
@@ -76,6 +77,7 @@ function render() {
 }
 function toggle(name) { if(selected.has(name)) selected.delete(name); else selected.add(name); }
 async function load(path=dir, navigation='push') {
+ closeContextMenu();
  if(!context.online) return;
  const gen=++generation, serial=context.serial;
  loading=true; listReady=false; selected.clear(); anchor=-1; clearPreview(); $('files').setAttribute('aria-busy','true'); $('empty').hidden=true; updateActions(); $('summary').textContent='正在读取目录…';
@@ -122,7 +124,7 @@ function validateName(name) {if(!validName(name))return '名称不能为空，�
 async function mkdir() {const name=await modal({title:'新建文件夹',description:'将在当前目录创建文件夹。',value:'新建文件夹',submit:'创建',validate:validateName});if(name===null)return;try{await request('mkdir',{name});notify('创建任务已提交');}catch(error){report(error);}}
 async function rename() {const e=picked()[0];if(!e)return;const name=await modal({title:'重命名',description:e.name,value:e.name,submit:'保存名称',validate:n=>n===e.name?'':validateName(n)});if(name===null||name===e.name)return;try{await request('rename',{name:e.name,target:name});notify('重命名任务已提交');}catch(error){report(error);}}
 async function remove() {const items=picked();if(!items.length)return;const yes=await modal({title:`删除 ${items.length} 个项目？`,description:items.slice(0,5).map(e=>e.name+(e.isDir?'（包含全部内容）':'')).join('\n')+(items.length>5?'\n…':'')+'\n\n直接从设备删除，无法在本应用中撤销。',submit:'确认删除',danger:true});if(!yes)return;try{await request('delete',{names:items.map(e=>e.name),confirmed:true});notify('删除任务已提交');selected.clear();render();}catch(error){report(error);}}
-async function upload() {const yes=await modal({title:'上传到当前目录',description:dir+'\n\n下一步选择本地文件。同名设备文件将被覆盖，请确认目标目录。',submit:'选择文件'});if(!yes)return;try{await request('upload',{confirmed:true});}catch(error){report(error);}}
+async function upload(folder=false) {const yes=await modal({title:folder?'上传文件夹到当前目录':'上传文件到当前目录',description:dir+'\n\n'+(folder?'选择的文件夹将保留内部目录结构。':'下一步可多选本地文件。')+'同名设备文件将被覆盖，请确认目标目录。',submit:folder?'选择文件夹':'选择文件'});if(!yes)return;try{const result=await request(folder?'uploadFolder':'upload',{confirmed:true});if(result.queued)notify('上传任务已提交');}catch(error){report(error);}}
 async function downloadEntries(items=picked()) {if(!items.length)return;try{await request('download',{names:items.map(e=>e.name)});}catch(error){report(error);}}
 // Coalesce a batch of completed transfers into one directory refresh.
 function scheduleRefresh() {const serial=context.serial,path=dir;clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>{if(context.serial===serial && dir===path && context.online && context.active)load(dir,'replace');},120);}
@@ -133,6 +135,7 @@ window.viva.onmessage=event=>{
  let message;try{message=JSON.parse(raw);}catch{return;}
  if(message.type==='response') {const p=pending.get(message.id);if(!p)return;clearTimeout(p.timer);pending.delete(message.id);if(message.error)p.reject(new Error(message.error));else p.resolve(message.data || {});return;}
  if(message.type==='context') {
+  closeContextMenu();
   const changed=context.serial!==message.serial, cameOnline=!context.online && message.online, becameActive=!context.active && message.active;context=message;document.documentElement.dataset.theme=message.theme;
   $('connection').textContent=message.online?'设备已连接':'设备离线';$('connection').classList.toggle('offline',!message.online);
   if(changed) {clearTimeout(refreshTimer);listReady=false;generation++;clearPreview(false);if(modalResolve)finishModal(null);for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('设备已切换'));}pending.clear();dir='/sdcard';entries=[];selected.clear();history=[];historyAt=-1;$('search').value='';tasks.clear();renderTasks();render();if(message.online && message.active)load(dir);}
@@ -147,13 +150,14 @@ $('path-form').onsubmit=e=>{e.preventDefault();load($('path').value);};
 $('refresh').onclick=()=>load(dir,'replace');$('up').onclick=()=>load(parentPath(dir));
 $('back').onclick=()=>{if(historyAt>0)load(history[historyAt-1],historyAt-1);};$('forward').onclick=()=>{if(historyAt<history.length-1)load(history[historyAt+1],historyAt+1);};
 for(const b of document.querySelectorAll('[data-path]'))b.onclick=()=>load(b.dataset.path);
-$('search').oninput=()=>{selected.clear();anchor=-1;clearPreview();render();};$('sort').onchange=render;
+$('search').oninput=()=>{closeContextMenu();selected.clear();anchor=-1;clearPreview();render();};$('sort').onchange=render;
 for(const mode of ['list','grid'])$('view-'+mode).onclick=()=>{view=mode;for(const m of ['list','grid']){$('view-'+m).classList.toggle('active',m===mode);$('view-'+m).setAttribute('aria-pressed',String(m===mode));}render();};
 $('select-all').onchange=()=>{const names=visible().map(e=>e.name);if($('select-all').checked)selected=new Set(names);else selected.clear();render();showInfo(picked().length===1?picked()[0]:null);};
-$('preview').onclick=()=>preview(picked()[0]);$('close-preview').onclick=()=>clearPreview();$('mkdir').onclick=mkdir;$('rename').onclick=rename;$('delete').onclick=remove;$('upload').onclick=upload;$('download').onclick=()=>downloadEntries();
+$('preview').onclick=()=>preview(picked()[0]);$('close-preview').onclick=()=>clearPreview();$('mkdir').onclick=mkdir;$('rename').onclick=rename;$('delete').onclick=remove;$('upload').onclick=()=>upload();$('upload-folder').onclick=()=>upload(true);$('download').onclick=()=>downloadEntries();
 $('show-tasks').onclick=()=>{$('tasks').hidden=!$('tasks').hidden;renderTasks();};$('close-tasks').onclick=()=>{$('tasks').hidden=true;};
 document.addEventListener('keydown',e=>{
  if($('modal').open)return;
+ if(e.key==='Escape' && contextMenu){closeContextMenu();return;}
  const editing=/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='l'){e.preventDefault();$('path').focus();$('path').select();return;}
  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='r'){e.preventDefault();load(dir,'replace');return;}
@@ -168,3 +172,36 @@ window.addEventListener('pagehide',()=>{clearTimeout(refreshTimer);revokePreview
 placeholder();render();renderTasks();
 if(window.viva) window.viva.postMessage(JSON.stringify({id:0,action:'ready'}));
 else {$('summary').textContent='请从 Go-Scopy 打开文件工作台';}
+
+// Context actions share the same confirmation and native-picker paths as the toolbar.
+
+function closeContextMenu() { if(contextMenu){contextMenu.remove();contextMenu=null;} }
+function showContextMenu(event) {
+ const area=event.target.closest('.file-area');
+ if(!area || event.target.closest('input,button'))return;
+ event.preventDefault();closeContextMenu();
+ const row=event.target.closest('.file'), name=row?.dataset.name;
+ if(name && !selected.has(name)){selected=new Set([name]);render();showInfo(picked()[0]);}
+ const items=picked(), menu=el('div','context-menu');contextMenu=menu;menu.setAttribute('role','menu');menu.setAttribute('aria-label','文件操作');
+ const online=context.online && context.active && !loading && listReady;
+ const action=(label,run,enabled=true,danger=false)=>{const button=el('button',danger?'danger':'',label);button.setAttribute('role','menuitem');button.disabled=!online || !enabled;button.onclick=()=>{closeContextMenu();run();};menu.append(button);};
+ if(name){
+  action(items[0]?.isDir?'打开文件夹':'预览',()=>openEntry(items[0]),items.length===1);
+  action('下载'+(items.length>1?'所选项目':''),()=>downloadEntries(),items.length>0);
+  action('重命名',rename,items.length===1);
+  action('删除'+(items.length>1?'所选项目':''),remove,items.length>0,true);
+  menu.append(el('div','menu-divider'));
+ }
+ action('上传文件…',()=>upload());action('上传文件夹…',()=>upload(true));action('新建文件夹',mkdir);
+ action('刷新',()=>load(dir,'replace'));
+ action('全选',()=>{selected=new Set(visible().map(e=>e.name));render();},visible().length>0);
+ document.body.append(menu);
+ menu.style.left=Math.max(4,Math.min(event.clientX,innerWidth-menu.offsetWidth-4))+'px';
+ menu.style.top=Math.max(4,Math.min(event.clientY,innerHeight-menu.offsetHeight-4))+'px';
+ menu.querySelector('button:not(:disabled)')?.focus();
+ menu.onkeydown=e=>{const buttons=[...menu.querySelectorAll('button:not(:disabled)')];let index=buttons.indexOf(document.activeElement);if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();buttons[(index+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();}if(e.key==='Escape'){e.stopPropagation();closeContextMenu();$('files').focus();}};
+}
+document.addEventListener('contextmenu',showContextMenu);
+document.addEventListener('pointerdown',event=>{if(contextMenu && !contextMenu.contains(event.target))closeContextMenu();});
+window.addEventListener('resize',closeContextMenu);
+document.addEventListener('scroll',closeContextMenu,true);

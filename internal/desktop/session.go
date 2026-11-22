@@ -35,6 +35,7 @@ type sessionWindow struct {
 	ready, ended, closing         bool
 	disposed, collapsed, dragging bool
 	recording, restart, screenOff bool
+	independentPreset             virtualScreenPreset
 	resolving, foregroundDone     bool
 	foregroundPackage             string
 	foregroundErr, finishErr      error
@@ -78,6 +79,12 @@ func (u *UI) openSessionWindow(serial string, kind domain.SessionKind, display *
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &sessionWindow{owner: u, serial: serial, name: name, session: session, kind: kind,
 		display: display, options: options, ctx: ctx, cancel: cancel, collapsed: true, recording: record}
+	switch u.state.Settings.VirtualOptionsFor(serial).Preset {
+	case "landscape":
+		s.independentPreset = screenPhoneLandscape
+	case "tablet":
+		s.independentPreset = screenTabletLandscape
+	}
 	s.scope = s.tree.Feature("session")
 	s.native = windowhost.New(title)
 	if err := s.openDock(title); err != nil {

@@ -87,7 +87,7 @@ func TestReadAgentAppsResponse(t *testing.T) {
 		if string(apps[0].IconPNG) != "application PNG" || !bytes.Equal(apps[1].IconPNG, defaultIcon) {
 			t.Fatal("native/default icon selection incorrect")
 		}
-		if a := apps[1]; a.Package != "com.example.app" || a.VersionCode != "123" || !a.CanLaunch || !a.System || a.SizeBytes != 12345 {
+		if a := apps[1]; a.Package != "com.example.app" || a.VersionCode != "123" || !a.CanLaunch || !a.System || a.SizeBytes != 12345 || a.InstalledAt.Unix() != 1 {
 			t.Fatalf("protocol fields shifted: %+v", a)
 		}
 	}

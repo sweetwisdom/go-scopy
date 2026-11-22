@@ -188,7 +188,7 @@ func (u *UI) Config() app.Config {
 			return app.WindowControlsStyle{Foreground: u.c.muted, Hover: u.c.selected, Close: ui.RGB(220, 48, 54), CloseForeground: ui.RGB(255, 255, 255), Minimize: "最小化", Maximize: "最大化", Restore: "还原", CloseName: "关闭"}
 		},
 		TextInput: func(context app.TextInputContext) *app.TextInput {
-			return flex.Fields(&u.previewInterval, &u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output, &u.appExportDir, &u.deviceName, &u.deviceAddress, &u.newDeviceName, &u.vd.width, &u.vd.height, &u.vd.dpi, &u.vd.search, &u.files.search, &u.files.name, &u.apps.search, &u.scripts.path, &u.scripts.python, &u.scripts.timeout)(context)
+			return flex.Fields(&u.previewInterval, &u.search, &u.address, &u.pairAddress, &u.code, &u.size, &u.fps, &u.bitrate, &u.adb, &u.scrcpy, &u.output, &u.appExportDir, &u.deviceName, &u.deviceAddress, &u.newDeviceName, &u.vd.width, &u.vd.height, &u.vd.dpi, &u.vd.lastApp, &u.vd.search, &u.files.search, &u.files.name, &u.apps.search, &u.scripts.path, &u.scripts.python, &u.scripts.timeout)(context)
 		},
 		OnKey: func(e ui.KeyEvent) ui.EventResult {
 			for _, selectState := range []*flex.SelectState{&u.vd.imeSelect} {
@@ -288,7 +288,7 @@ func (u *UI) onWake() {
 		if kind == "apk" {
 			filter = app.FileFilter{Name: "Android 应用", Pattern: "*.apk"}
 		}
-		paths, err := app.OpenFiles(app.OpenFileOptions{Title: "选择文件", Filters: []app.FileFilter{filter}})
+		paths, err := app.OpenFiles(app.OpenFileOptions{Title: "选择文件", Filters: []app.FileFilter{filter}, AllowMultiple: kind == "upload"})
 		if err != nil {
 			u.notice = err.Error()
 		} else if len(paths) > 0 {
@@ -301,7 +301,9 @@ func (u *UI) onWake() {
 			case "apk":
 				u.backend.Install(serial, paths[0])
 			case "upload":
-				u.backend.FileUpload(serial, paths[0], joinDevice(u.files.dir, filepath.Base(paths[0])))
+				for _, local := range paths {
+					u.backend.FileUpload(serial, local, joinDevice(u.files.dir, filepath.Base(local)))
+				}
 			case "adb":
 				u.adb.SetText(paths[0])
 			case "scrcpy":
@@ -326,6 +328,7 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 	u.deviceConnection = deviceConnectionState{}
 	u.overviewTools = u.overviewTools[:0]
 	u.apps.rows = u.apps.rows[:0]
+	u.apps.listSet = false
 	u.vd.rows = u.vd.rows[:0]
 	u.fileWeb.slotSet = false
 	u.terminalWeb.slotSet = false
@@ -362,6 +365,7 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 	})
 	u.syncPreviewRefresh(time.Now())
 	u.paintDeviceConnectionTooltip(canvas, bounds)
+	u.paintAppScrollbar(canvas, bounds)
 	u.fetchVisibleAppMetas(bounds)
 	if !u.deviceDialogOpen() && u.fileWeb.slotSet && u.fileWeb.page != nil {
 		canvas.NativeView(u.fileWeb.page.ID(), u.fileWeb.slot.Rect())
@@ -437,7 +441,7 @@ func (u *UI) sidebar(f *flex.Frame) {
 			}
 		})
 		if u.section == "settings" {
-			for _, item := range []struct{ key, label, desc string }{{"general", "常规", "外观与保存位置"}, {"tools", "运行环境", "adb 与 scrcpy"}, {"about", "关于", "版本与开源项目"}} {
+			for _, item := range []struct{ key, label, desc string }{{"general", "常规", "外观与保存位置"}, {"virtual", "虚拟屏幕", "默认参数与设备记忆"}, {"tools", "运行环境", "adb 与 scrcpy"}, {"about", "关于", "版本与开源项目"}} {
 				bg := ui.Color{}
 				if u.category == item.key {
 					bg = u.c.selected
@@ -856,7 +860,7 @@ func (u *UI) tasks(f *flex.Frame) {
 			if t.Path != "" {
 				u.small(f, t.Path)
 				if f.Button(u.id(fmt.Sprintf("task/%d", t.ID)), "打开所在文件夹").Small().Outline().Clicked() {
-					if err := app.OpenPath(filepath.Dir(t.Path)); err != nil {
+					if err := openLocalDirectory(filepath.Dir(t.Path)); err != nil {
 						u.notice = err.Error()
 						u.wake.Invalidate()
 					}
@@ -874,6 +878,10 @@ func (u *UI) tasks(f *flex.Frame) {
 }
 
 func (u *UI) settings(f *flex.Frame) {
+	if u.category == "virtual" {
+		u.virtualSettings(f)
+		return
+	}
 	if u.category == "about" {
 		u.heading(f, "设置 / 关于", "Go-Scopy", "用 Go 与原生 Viva 构建的 Android 桌面工作台。")
 		u.card(f, func() {
@@ -935,7 +943,7 @@ func (u *UI) settings(f *flex.Frame) {
 				u.saveSettings()
 			}
 			if f.Button(u.id("open-output"), "打开目录").Outline().Clicked() {
-				if err := app.OpenPath(u.state.Settings.OutputDir); err != nil {
+				if err := openLocalDirectory(u.state.Settings.OutputDir); err != nil {
 					u.notice = err.Error()
 					u.wake.Invalidate()
 				}

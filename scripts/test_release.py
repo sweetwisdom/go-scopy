@@ -161,7 +161,9 @@ class ReleaseChecks(unittest.TestCase):
         self.assertIn('Architecture: arm64\n', control)
         self.assertIn('Depends: libc6 (>= 2.39)', control)
         notes = verify.release_notes(VERSION, COMMIT)
-        for feature in ['5 秒', 'DMG', 'DEB', '全局缓存', '崩溃日志', COMMIT]:
+        for feature in ['右键菜单', '多选上传', '紧凑卡片', '安装时间', '滚动条',
+                        '平板横屏', '每台设备', '手机输入法', '打开目录',
+                        "What's new", 'DMG', 'DEB', VERSION, COMMIT]:
             self.assertIn(feature, notes)
 
 

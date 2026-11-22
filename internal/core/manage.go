@@ -143,6 +143,7 @@ func (s *Service) FetchApps(serial string) {
 		for i, a := range apps {
 			if cached := old[a.Package]; a.APKPath != "" && cached.APKPath == a.APKPath && a.VersionCode != "" && cached.VersionCode == a.VersionCode {
 				apps[i].Label, apps[i].VersionName, apps[i].SizeBytes, apps[i].CanLaunch = cached.Label, cached.VersionName, cached.SizeBytes, cached.CanLaunch
+				apps[i].InstalledAt = cached.InstalledAt
 			}
 		}
 		listing := domain.AppListing{Apps: apps}
@@ -150,7 +151,7 @@ func (s *Service) FetchApps(serial string) {
 			listing = previous
 			listing.Refreshing, listing.Error = false, err.Error()
 		}
-		missingMetadata := s.hydrateAppMetadata(epoch, listing.Apps)
+		s.hydrateAppMetadata(epoch, listing.Apps)
 		s.mu.Lock()
 		if s.appCacheEpoch.Load() != epoch {
 			s.mu.Unlock()
@@ -161,9 +162,15 @@ func (s *Service) FetchApps(serial string) {
 		s.wake()
 		if err == nil {
 			_ = s.saveAppSnapshot(epoch, key, appSnapshot(apps))
-			if missingMetadata {
-				s.fetch("enrich-apps:"+serial, func(ctx context.Context) { _, _ = s.agentAppMeta(ctx, serial, "") })
-			}
+			s.mu.Lock()
+			generation := s.appListingGeneration[serial]
+			s.mu.Unlock()
+			s.fetch("details-apps:"+serial, func(ctx context.Context) {
+				readCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+				defer cancel()
+				details := s.tool.AppPackageDetails(readCtx, serial, apps)
+				s.publishAgentApps(serial, generation, epoch, details)
+			})
 		}
 	})
 }

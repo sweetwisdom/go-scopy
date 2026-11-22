@@ -83,6 +83,7 @@ func New(dir, root string) (*Service, error) {
 
 func cloneSettings(v domain.Settings) domain.Settings {
 	v.Devices = cloneMap(v.Devices)
+	v.VirtualDevices = cloneMap(v.VirtualDevices)
 	v.DeviceNames = cloneMap(v.DeviceNames)
 	v.SavedWireless = cloneMap(v.SavedWireless)
 	return v

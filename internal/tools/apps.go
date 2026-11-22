@@ -32,10 +32,10 @@ func (t Tools) ListApps(ctx context.Context, serial string) ([]AppInfo, error) {
 	return t.ListAppPackages(ctx, serial)
 }
 
-// ListAppMetadata exposes Agent failures instead of converting them to a
-// label-less package list that callers could incorrectly cache as complete.
+// ListAppMetadata requests user applications only, including background-only
+// packages (Agent flags 2 | 4). System icons are never acquired implicitly.
 func (t Tools) ListAppMetadata(ctx context.Context, serial string) ([]AppInfo, error) {
-	return t.listAppsAgent(ctx, serial)
+	return t.listAppsAgentFiltered(ctx, serial, 6)
 }
 
 // ListAppPackages only reads installation identities, paths and user/system flags.

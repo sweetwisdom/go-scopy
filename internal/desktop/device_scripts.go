@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/go-scopy/go-scopy/internal/domain"
-	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
 )
@@ -142,7 +141,7 @@ func (u *UI) deviceScripts(f *flex.Frame, d domain.Device) {
 			f.Row().FillWidth().Items(flex.Center).Children(func() {
 				f.Text("实时输出 / " + scriptStatus(r.Status)).FontSize(15).Weight(ui.WeightSemibold).Grow(1)
 				if f.Button(u.id("script-open-output"), "打开日志与产物").Small().Outline().Clicked() {
-					if e := app.OpenPath(r.OutputDir); e != nil {
+					if e := openLocalDirectory(r.OutputDir); e != nil {
 						u.notice = e.Error()
 					}
 				}

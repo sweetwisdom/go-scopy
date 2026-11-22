@@ -29,7 +29,7 @@ func (u *UI) appExportSettings(f *flex.Frame) {
 			}
 			dir := u.state.Settings.AppExportDir
 			if f.Button(u.id("open-app-export-dir"), "打开导出目录").Outline().Disabled(dir == "").Clicked() {
-				if err := app.OpenPath(dir); err != nil {
+				if err := openLocalDirectory(dir); err != nil {
 					u.notice = err.Error()
 					u.wake.Invalidate()
 				}

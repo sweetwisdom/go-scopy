@@ -329,6 +329,10 @@ func (t Tools) QuickAction(ctx context.Context, serial, action string) (string, 
 		command = "cmd statusbar collapse"
 	case "settings":
 		command = "am start -a android.settings.SETTINGS"
+	case "input-method":
+		command = "am start -a android.settings.INPUT_METHOD_SETTINGS"
+	case "physical-keyboard":
+		command = "am start -a android.settings.HARD_KEYBOARD_SETTINGS"
 	case "wifi":
 		command = "am start -a android.settings.WIFI_SETTINGS"
 	case "developer":

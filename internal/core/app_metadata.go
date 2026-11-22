@@ -198,7 +198,25 @@ func (s *Service) resolveAppMeta(ctx context.Context, serial, apkPath, pkg strin
 	// Android PackageManager understands adaptive icons and modern resources.
 	// Do not run the legacy APK parser in the desktop process: malformed or
 	// unsupported resource tables can panic or allocate unbounded memory.
-	if app, ok := s.agentAppMeta(ctx, serial, pkg); ok {
+	system := false
+	s.mu.Lock()
+	for _, app := range s.state.Apps[serial].Apps {
+		if app.Package == pkg {
+			system = app.System
+			break
+		}
+	}
+	s.mu.Unlock()
+	var app domain.AppInfo
+	var resolved bool
+	if system {
+		// Explicit system-icon reads use a worker process to contain legacy APK
+		// resource parsing. They never start an all-system Agent acquisition.
+		app, resolved = s.tool.IsolatedAppMeta(ctx, serial, apkPath, pkg)
+	} else {
+		app, resolved = s.agentAppMeta(ctx, serial, pkg)
+	}
+	if resolved {
 		meta.Label, meta.IconPNG = app.Label, app.IconPNG
 	}
 	if err := ctx.Err(); err != nil {
@@ -368,7 +386,21 @@ func (s *Service) publishAgentApps(serial string, generation, epoch uint64, apps
 		if !ok || (a.VersionCode != "" && a.VersionCode != meta.VersionCode) {
 			continue
 		}
-		a.Label, a.VersionName, a.SizeBytes, a.CanLaunch = meta.Label, meta.VersionName, meta.SizeBytes, meta.CanLaunch
+		if meta.Label != "" {
+			a.Label = meta.Label
+		}
+		if meta.VersionName != "" {
+			a.VersionName = meta.VersionName
+		}
+		if meta.SizeBytes > 0 {
+			a.SizeBytes = meta.SizeBytes
+		}
+		if !meta.InstalledAt.IsZero() {
+			a.InstalledAt = meta.InstalledAt
+		}
+		if meta.CanLaunch {
+			a.CanLaunch = true
+		}
 		if a.VersionCode == "" {
 			a.VersionCode = meta.VersionCode
 		}

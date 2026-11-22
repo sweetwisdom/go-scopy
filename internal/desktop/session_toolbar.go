@@ -124,8 +124,27 @@ func (s *sessionWindow) paintTools(canvas *ui.Canvas, size ui.Size) {
 	if s.resolving {
 		independentLabel = "正在识别…"
 	}
-	if s.islandButton(canvas, "independent-app", independentLabel, "", ui.Rect{X: 16, Y: 238, Width: 150, Height: 38}, !s.ready || s.closing || s.resolving || s.kind == domain.SessionVirtual || !canResolve, false) {
+	if s.islandButton(canvas, "independent-app", independentLabel, "", ui.Rect{X: 16, Y: 238, Width: 104, Height: 38}, !s.ready || s.closing || s.resolving || s.kind == domain.SessionVirtual || !canResolve, false) {
 		s.detachCurrentApp()
+	}
+	orientationLabel := "竖屏"
+	switch s.independentPreset {
+	case screenPhoneLandscape:
+		orientationLabel = "横屏"
+	case screenTabletLandscape:
+		orientationLabel = "平板"
+	}
+	if s.islandButton(canvas, "independent-orientation", orientationLabel, "", ui.Rect{X: 124, Y: 238, Width: 42, Height: 38}, s.closing || s.resolving, false) {
+		s.independentPreset = (s.independentPreset + 1) % 3
+		switch s.independentPreset {
+		case screenPhonePortrait:
+			s.islandMessage = "下个独立窗口：手机竖屏"
+		case screenPhoneLandscape:
+			s.islandMessage = "下个独立窗口：手机横屏"
+		case screenTabletLandscape:
+			s.islandMessage = "下个独立窗口：平板横屏 · 1920×1200 / 240 DPI"
+		}
+		s.wake.Invalidate()
 	}
 	recordLabel := "开始录屏"
 	if s.recording {
@@ -259,12 +278,25 @@ func (s *sessionWindow) launchIndependentApp(pkg string) {
 	if pkg == "" {
 		return
 	}
-	display := domain.VirtualDisplay{
-		Width: 1080, Height: 2400, DPI: 420, SystemDecorations: true,
-		StartApp: pkg, ReturnHome: true,
+	prefs := s.owner.state.Settings.VirtualOptionsFor(s.serial)
+	preset := virtualPresetKey(s.independentPreset)
+	if prefs.Preset != preset {
+		defaults := virtualDisplayDefaults(s.independentPreset)
+		prefs.Preset = preset
+		prefs.Width, prefs.Height, prefs.DPI = defaults.Width, defaults.Height, defaults.DPI
+		if s.independentPreset == screenTabletLandscape {
+			prefs.Keyboard = "uhid"
+			prefs.IMEPolicy = "local"
+		}
 	}
-	if !s.owner.openSessionWindow(s.serial, domain.SessionVirtual, &display, s.options, false) {
-		s.owner.backend.StartVirtual(s.serial, s.options, display, false)
+	display := domain.VirtualDisplay{Width: prefs.Width, Height: prefs.Height, DPI: prefs.DPI, SystemDecorations: prefs.SystemDecorations, DestroyOnClose: prefs.DestroyOnClose, IMEPolicy: prefs.IMEPolicy}
+	options := s.options
+	options.Keyboard = prefs.Keyboard
+	prefs.LastApp = pkg
+	s.owner.rememberVirtualPreferences(s.serial, prefs, false)
+	display.StartApp, display.ReturnHome = pkg, true
+	if !s.owner.openSessionWindow(s.serial, domain.SessionVirtual, &display, options, false) {
+		s.owner.backend.StartVirtual(s.serial, options, display, false)
 	}
 }
 

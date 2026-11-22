@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vivaui/viva/headless"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -215,5 +217,45 @@ func TestFileWorkspaceLiveWebView(t *testing.T) {
 	}
 	if err := <-finished; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFileNativeUploadPickersKeepAllSelectedPaths(t *testing.T) {
+	for _, folder := range []bool{false, true} {
+		u, f := fileUI(t)
+		session, err := headless.Open(u.Config(), nil, headless.Options{Scale: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		action := "upload"
+		paths := []string{filepath.Join(t.TempDir(), "one.txt"), filepath.Join(t.TempDir(), "two.txt")}
+		if folder {
+			action = "uploadFolder"
+			paths = []string{t.TempDir()}
+			err = session.Driver().QueueOpenDirectory(paths[0], nil)
+		} else {
+			err = session.Driver().QueueOpenFiles(paths, nil)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		sendFileRequest(u, fileMessage{ID: 50, Action: action, Serial: u.selected, Path: "/sdcard", Confirmed: true})
+		if err = session.Driver().Pump(); err != nil {
+			t.Fatal(err)
+		}
+		if !folder {
+			if request, ok := session.Driver().LastOpenFilesRequest(); !ok || !request.AllowMultiple {
+				t.Fatal("native upload picker did not enable multi-selection")
+			}
+		}
+		if len(f.ops) != len(paths) {
+			t.Fatalf("lost selected paths: %+v", f.ops)
+		}
+		for i, op := range f.ops {
+			if op.Target != paths[i] || op.Path != "/sdcard/"+filepath.Base(paths[i]) {
+				t.Fatalf("wrong upload destination: %+v", op)
+			}
+		}
+		session.Close()
 	}
 }

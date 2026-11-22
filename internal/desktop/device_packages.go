@@ -6,10 +6,13 @@ import (
 	"image"
 	"image/draw"
 	"image/png"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-scopy/go-scopy/internal/domain"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
 )
@@ -24,12 +27,17 @@ type appMetaRow struct {
 type appsState struct {
 	rows            []appMetaRow
 	listBox         flex.Box
+	listSet         bool
 	bitmaps         appBitmapCache
 	cacheGeneration uint64
 	search          flex.Field
 	filter          string // "all" | "user" | "system"
 	selected        map[string]bool
-	confirm         string          // package pending uninstall confirmation
+	confirm         string // package pending uninstall confirmation
+	detailsSerial   string
+	sortKey         string
+	sortDesc        bool
+	scrollGrab      float32
 	menuFor         string          // package whose row actions are open
 	exportPackages  []string        // Snapshot for the pending native destination picker.
 	exportDismissed map[uint64]bool // Result cards hidden for this application session.
@@ -40,7 +48,7 @@ type appsState struct {
 func (u *UI) devicePackages(f *flex.Frame, d domain.Device) {
 	ready := d.State == "device"
 	if u.apps.filter == "" {
-		u.apps.filter = "all"
+		u.apps.filter = "user"
 	}
 	if u.apps.selected == nil {
 		u.apps.selected = map[string]bool{}
@@ -132,6 +140,29 @@ func (u *UI) devicePackages(f *flex.Frame, d domain.Device) {
 		}
 	})
 
+	f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
+		f.Text("排序").FontSize(11).Color(u.c.muted)
+		for _, option := range []struct{ key, label string }{{"name", "名称"}, {"size", "大小"}, {"date", "安装日期"}} {
+			button := f.Button(u.id("apps-sort-"+option.key), option.label).Small()
+			active := u.apps.sortKey == option.key || (u.apps.sortKey == "" && option.key == "name")
+			if !active {
+				button = button.Ghost()
+			}
+			if button.Clicked() {
+				u.apps.sortKey = option.key
+				u.apps.sortDesc = option.key != "name"
+				u.wake.Invalidate()
+			}
+		}
+		direction := "升序 ↑"
+		if u.apps.sortDesc {
+			direction = "降序 ↓"
+		}
+		if f.Button(u.id("apps-sort-direction"), direction).Small().Ghost().Clicked() {
+			u.apps.sortDesc = !u.apps.sortDesc
+			u.wake.Invalidate()
+		}
+	})
 	u.appExportStatus(f, d.Serial)
 
 	if u.apps.confirm != "" {
@@ -162,7 +193,7 @@ func (u *UI) devicePackages(f *flex.Frame, d domain.Device) {
 		})
 	}
 
-	u.card(f, func() {
+	f.Column().FillWidth().Pad(12).Gap(10).Background(u.c.card).Border(1, u.c.border).Radius(12).Children(func() {
 		if listing.Error != "" {
 			u.small(f, "刷新应用列表失败："+listing.Error)
 		}
@@ -181,8 +212,9 @@ func (u *UI) devicePackages(f *flex.Frame, d domain.Device) {
 			u.small(f, "没有匹配的应用。")
 			return
 		}
-		u.apps.listBox = f.ScrollArea(u.id("apps-list-scroll")).FillWidth().Height(480).Children(func() {
-			f.Grid(360).FillWidth().Gap(8).Children(func() {
+		u.apps.listSet = true
+		u.apps.listBox = f.ScrollArea(u.id("apps-list-scroll")).FillWidth().Height(max(140, min(480, u.overviewHeight-520))).Children(func() {
+			f.Grid(260).FillWidth().PadSides(0, 12, 0, 0).Gap(8).Children(func() {
 				for _, a := range apps {
 					u.appRow(f, d, a)
 				}
@@ -195,56 +227,32 @@ func (u *UI) appRow(f *flex.Frame, d domain.Device, a domain.AppInfo) {
 	ready := d.State == "device"
 	meta := u.appMeta(d.Serial, a.Package)
 	checked := u.apps.selected[a.Package]
-	row := f.Row().FillWidth().Height(52).Gap(10).PadX(10).Items(flex.Center).HoverBackground(u.c.selected).Children(func() {
-		if f.Checkbox(u.id("app-check-"+a.Package), checked).Clicked() {
-			if checked {
-				delete(u.apps.selected, a.Package)
-			} else {
-				u.apps.selected[a.Package] = true
+	bg, border := u.c.side, u.c.border
+	if checked {
+		bg, border = u.c.selected, u.c.blue
+	}
+	row := f.Column().FillWidth().MinHeight(96).Pad(10).Gap(8).Radius(8).Background(bg).Border(1, border).HoverBackground(u.c.selected).Children(func() {
+		f.Row().FillWidth().Gap(10).Items(flex.Start).Children(func() { u.appIdentityLayout(f, d.Serial, a, true) })
+		f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
+			if f.Checkbox(u.id("app-check-"+a.Package), checked).Clicked() {
+				if checked {
+					delete(u.apps.selected, a.Package)
+				} else {
+					u.apps.selected[a.Package] = true
+				}
+				u.wake.Invalidate()
 			}
-			u.wake.Invalidate()
-		}
-		u.appIdentity(f, d.Serial, a)
-		f.Text(formatBytes(a.SizeBytes)).FontSize(12).Color(u.c.muted).Width(86)
-		version := a.VersionName
-		if version == "" {
-			version = a.VersionCode
-		}
-		f.Text(version).FontSize(12).Color(u.c.muted).Width(80).Ellipsis()
-		if f.Button(u.id("app-menu-"+a.Package), "⋮").Ghost().Small().Clicked() {
-			if u.apps.menuFor == a.Package {
-				u.apps.menuFor = ""
-			} else {
+			f.Text(appSizeLabel(a.SizeBytes)).FontSize(12).Color(u.c.muted).Grow(1)
+			if f.Button(u.id("app-menu-"+a.Package), "⋮").Ghost().Small().Clicked() {
 				u.apps.menuFor = a.Package
-			}
-			u.wake.Invalidate()
-		}
-	})
-	if ready && !meta.Resolved && meta.Error == "" {
-		u.apps.rows = append(u.apps.rows, appMetaRow{box: row, serial: d.Serial, app: a})
-	}
-	if u.apps.menuFor != a.Package {
-		return
-	}
-	u.card(f, func() {
-		f.Row().FillWidth().Gap(10).Children(func() {
-			if f.Button(u.id("app-export-one"), "导出安装包").Small().Outline().Disabled(!ready).Clicked() {
-				u.requestAppExport(d.Serial, []string{a.Package})
-				u.apps.menuFor = ""
-				u.wake.Invalidate()
-			}
-			if f.Button(u.id("app-backup-one"), "备份应用").Small().Outline().Disabled(!ready).Clicked() {
-				u.backend.AppBackup(d.Serial, a.Package, "")
-				u.apps.menuFor = ""
-				u.wake.Invalidate()
-			}
-			if f.Button(u.id("app-uninstall-one"), "卸载").Small().Destructive().Disabled(!ready).Clicked() {
-				u.apps.confirm = a.Package
-				u.apps.menuFor = ""
+				u.apps.detailsSerial = d.Serial
 				u.wake.Invalidate()
 			}
 		})
 	})
+	if ready && !a.System && !meta.Resolved && meta.Error == "" {
+		u.apps.rows = append(u.apps.rows, appMetaRow{box: row, serial: d.Serial, app: a})
+	}
 }
 
 func (u *UI) appIsSystem(apps []domain.AppInfo, pkg string) bool {
@@ -259,7 +267,42 @@ func (u *UI) appIsSystem(apps []domain.AppInfo, pkg string) bool {
 // filterApps applies the search box (package name or fetched label) and the
 // user/system filter.
 func (u *UI) filterApps(serial string, apps []domain.AppInfo) []domain.AppInfo {
-	return u.filterAppList(serial, apps, u.apps.search.Text(), u.apps.filter)
+	found := u.filterAppList(serial, apps, u.apps.search.Text(), u.apps.filter)
+	sort.SliceStable(found, func(i, j int) bool {
+		a, b := found[i], found[j]
+		switch u.apps.sortKey {
+		case "size":
+			if (a.SizeBytes <= 0) != (b.SizeBytes <= 0) {
+				return a.SizeBytes > 0
+			}
+			if a.SizeBytes != b.SizeBytes {
+				if u.apps.sortDesc {
+					return a.SizeBytes > b.SizeBytes
+				}
+				return a.SizeBytes < b.SizeBytes
+			}
+		case "date":
+			if a.InstalledAt.IsZero() != b.InstalledAt.IsZero() {
+				return !a.InstalledAt.IsZero()
+			}
+			if !a.InstalledAt.Equal(b.InstalledAt) {
+				if u.apps.sortDesc {
+					return a.InstalledAt.After(b.InstalledAt)
+				}
+				return a.InstalledAt.Before(b.InstalledAt)
+			}
+		default:
+			left, right := strings.ToLower(u.appDisplayLabel(serial, a)), strings.ToLower(u.appDisplayLabel(serial, b))
+			if left != right {
+				if u.apps.sortDesc {
+					return left > right
+				}
+				return left < right
+			}
+		}
+		return a.Package < b.Package
+	})
+	return found
 }
 
 func (u *UI) filterAppList(serial string, apps []domain.AppInfo, query, kind string) []domain.AppInfo {
@@ -391,14 +434,22 @@ func (u *UI) appMeta(serial, pkg string) domain.AppMeta {
 
 // appIdentity is shared by management rows and the virtual-display app picker.
 func (u *UI) appIdentity(f *flex.Frame, serial string, a domain.AppInfo) {
+	u.appIdentityLayout(f, serial, a, false)
+}
+
+func (u *UI) appDisplayLabel(serial string, a domain.AppInfo) string {
+	if label := u.appMeta(serial, a.Package).Label; label != "" {
+		return label
+	}
+	if a.Label != "" {
+		return a.Label
+	}
+	return a.Package
+}
+
+func (u *UI) appIdentityLayout(f *flex.Frame, serial string, a domain.AppInfo, wrap bool) {
 	meta := u.appMeta(serial, a.Package)
-	label := meta.Label
-	if label == "" {
-		label = a.Label
-	}
-	if label == "" {
-		label = a.Package
-	}
+	label := u.appDisplayLabel(serial, a)
 	icon := meta.IconPNG
 	if len(icon) == 0 {
 		icon = a.IconPNG
@@ -412,11 +463,139 @@ func (u *UI) appIdentity(f *flex.Frame, serial string, a domain.AppInfo) {
 	}
 	f.Column().Width(0).Grow(1).Gap(2).Children(func() {
 		f.Row().FillWidth().Gap(6).Items(flex.Center).Children(func() {
-			f.Text(label).Width(0).Grow(1).FontSize(13).Weight(ui.WeightMedium).Ellipsis()
+			if wrap {
+				f.Wrap(label).Width(0).Grow(1).FontSize(13).Weight(ui.WeightMedium)
+			} else {
+				f.Text(label).Width(0).Grow(1).FontSize(13).Weight(ui.WeightMedium).Ellipsis()
+			}
 			if a.System {
 				f.Text("系统").FontSize(9).Shrink(0).Color(u.c.muted).PadX(6).PadY(2).Radius(6).Background(u.c.selected)
 			}
 		})
 		f.Text(a.Package).FillWidth().FontSize(11).Color(u.c.muted).Ellipsis()
 	})
+}
+
+func appSizeLabel(size int64) string {
+	if size <= 0 {
+		return "未知"
+	}
+	return formatBytes(size)
+}
+
+func (u *UI) appDetailsDialog(f *flex.Frame) {
+	if u.apps.menuFor == "" {
+		return
+	}
+	serial := u.apps.detailsSerial
+	if serial != u.selected || u.section != "devices" || u.deviceTab != "packages" {
+		u.apps.menuFor = ""
+		return
+	}
+	var a domain.AppInfo
+	for _, info := range u.state.Apps[serial].Apps {
+		if info.Package == u.apps.menuFor {
+			a = info
+			break
+		}
+	}
+	if a.Package == "" {
+		u.apps.menuFor = ""
+		return
+	}
+	ready := u.dialogDevice(serial).State == "device"
+	d := f.Dialog(flex.DialogSpec{Title: "应用详细信息", Description: u.virtualAppLabel(serial, a.Package), Width: 640, Scope: u.id("app-details"), DismissID: u.id("app-details-cancel"), CloseID: u.id("app-details-close")})
+	d.Body(func() {
+		f.Column().FillWidth().Gap(12).Children(func() {
+			version := a.VersionName
+			if version == "" {
+				version = "未知"
+			}
+			if a.VersionCode != "" {
+				version += "（" + a.VersionCode + "）"
+			}
+			installed := "未知"
+			if !a.InstalledAt.IsZero() {
+				installed = a.InstalledAt.Local().Format(time.DateTime)
+			}
+			kind := "用户应用"
+			if a.System {
+				kind = "系统应用"
+			}
+			for _, item := range []struct{ label, value string }{{"包名", a.Package}, {"版本", version}, {"安装日期", installed}, {"安装包大小", appSizeLabel(a.SizeBytes)}, {"应用类型", kind}, {"APK 路径", a.APKPath}} {
+				f.Column().FillWidth().Gap(4).Children(func() { f.Text(item.label).FontSize(11).Color(u.c.muted); f.Wrap(item.value).FillWidth().FontSize(13) })
+			}
+			meta := u.appMeta(serial, a.Package)
+			if a.System && len(meta.IconPNG) == 0 && len(a.IconPNG) == 0 {
+				if f.Button(u.id("app-load-icon"), "加载此应用图标").Small().Outline().Disabled(!ready).Clicked() {
+					u.backend.FetchAppMeta(serial, a.APKPath, a.Package)
+				}
+				if meta.Error != "" {
+					u.small(f, meta.Error)
+				}
+			}
+		})
+	})
+	d.Footer(func() {
+		if f.Button(u.id("app-export-one"), "导出安装包").Small().Outline().Disabled(!ready).Clicked() {
+			u.requestAppExport(serial, []string{a.Package})
+			u.apps.menuFor = ""
+			u.wake.Invalidate()
+		}
+		if f.Button(u.id("app-backup-one"), "备份应用").Small().Outline().Disabled(!ready).Clicked() {
+			u.backend.AppBackup(serial, a.Package, "")
+			u.apps.menuFor = ""
+			u.wake.Invalidate()
+		}
+		if f.Button(u.id("app-uninstall-one"), "卸载").Small().Destructive().Disabled(!ready).Clicked() {
+			u.apps.confirm = a.Package
+			u.apps.menuFor = ""
+			u.wake.Invalidate()
+		}
+		f.Button(u.id("app-details-cancel"), "关闭").Small().Outline()
+	})
+	if d.Dismissed() {
+		u.apps.menuFor = ""
+		u.wake.Invalidate()
+	}
+}
+
+// Reuse Viva's scrollbar geometry and the list's existing wheel offset.
+func (u *UI) paintAppScrollbar(canvas *ui.Canvas, bounds ui.Rect) {
+	if !u.apps.listSet || u.section != "devices" || u.deviceTab != "packages" || u.deviceDialogOpen() {
+		return
+	}
+	rect := u.apps.listBox.Rect()
+	if rect.Height <= 0 || rect.Width <= 0 {
+		return
+	}
+	state := u.view.ScrollState(u.id("apps-list-scroll"))
+	if state.Max() <= 0 {
+		return
+	}
+	area := components.BeginScrollArea(canvas, u.theme, rect, ui.Size{Width: rect.Width, Height: state.Content}).Offset(0, state.Offset).VerticalScrollbar(u.id("apps-scrollbar"), "应用列表滚动条", "")
+	geometry := area.Geometry()
+	top, bottom := max(rect.Y, bounds.Y+44), min(rect.Bottom(), bounds.Bottom()-28)
+	if bottom <= top {
+		return
+	}
+	canvas.Clip(ui.Rect{X: rect.X, Y: top, Width: rect.Width, Height: bottom - top})
+	area.EndContent()
+	canvas.Unclip()
+	if event, ok := canvas.PointerOn(u.id("apps-scrollbar")); ok {
+		if event.Kind == ui.PointerDown && event.Button != ui.PointerButtonPrimary {
+			return
+		}
+		if event.Kind == ui.PointerDown && event.Button == ui.PointerButtonPrimary {
+			u.apps.scrollGrab = geometry.VerticalThumb.Height / 2
+			if event.Y >= geometry.VerticalThumb.Y && event.Y <= geometry.VerticalThumb.Bottom() {
+				u.apps.scrollGrab = event.Y - geometry.VerticalThumb.Y
+			}
+		}
+		if event.Kind == ui.PointerDown || event.Kind == ui.PointerMove {
+			state.ScrollTo(geometry.VerticalOffsetForThumb(event.Y - u.apps.scrollGrab))
+			canvas.Consume()
+			u.wake.Invalidate()
+		}
+	}
 }

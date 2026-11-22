@@ -231,3 +231,29 @@ func TestIndependentWindowBecomesReadyAfterBackendHandoff(t *testing.T) {
 		t.Fatal("completed handoff did not enable controls and clear one-shot flag")
 	}
 }
+
+func TestIndependentAppLandscapeBeforeLaunch(t *testing.T) {
+	w, f, s := testIsland(t, false)
+	click(t, s, "竖屏")
+	click(t, s, "独立窗口")
+	f.resolve("com.example.current", nil)
+	w.onWake()
+	if f.display == nil || f.display.Width != 2400 || f.display.Height != 1080 {
+		t.Fatalf("wrong landscape display: %+v", f.display)
+	}
+}
+
+func TestIndependentAppTabletBeforeLaunch(t *testing.T) {
+	w, f, s := testIsland(t, false)
+	click(t, s, "竖屏")
+	click(t, s, "横屏")
+	if _, ok := s.Hit("平板"); !ok {
+		t.Fatal("tablet mode not reachable")
+	}
+	click(t, s, "独立窗口")
+	f.resolve("com.example.current", nil)
+	w.onWake()
+	if f.display == nil || f.display.Width != 1920 || f.display.Height != 1200 || f.display.DPI != 240 || !f.display.ReturnHome {
+		t.Fatalf("wrong tablet display: %+v", f.display)
+	}
+}

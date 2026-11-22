@@ -150,10 +150,31 @@ def verify_dmg(path, target, version, commit):
 def release_notes(version, commit):
     return f"""Go-Scopy v{version}
 
-- 设备概况自动截图，默认 5 秒刷新，设置可调整；手机预览采用全面屏窄边框。
-- 应用名称、图标按包名全局缓存，修复重复加载和图标读取的闪退风险，新增崩溃日志。
-- 优化虚拟屏幕、设备管理弹窗及连接恢复。
-- Windows 提供 EXE 安装包和 ZIP；macOS 提供 DMG / ZIP；Linux 提供 DEB / tar.gz，均附带 adb 与 scrcpy。
+## 更新内容
+
+- 文件管理新增右键菜单，支持多选上传文件、上传整个文件夹。
+- 应用改为紧凑卡片展示，名称显示更完整，宽屏可显示更多列。
+- 默认只显示用户应用，系统应用图标按需加载，支持按名称、大小、安装时间排序。
+- 点击应用右侧三个点可查看详细信息，列表新增滚动条。
+- 新增手机横屏和平板横屏模式。
+- 默认关闭虚拟屏幕后结束其中的应用任务，避免应用跳到手机前台。
+- 自动记住每台设备的虚拟屏幕设置和上次应用，也可在设置中修改。
+- 平板模式新增外接键盘模式，配合手机输入法输入中文，兼容性取决于手机和输入法。
+- 修复“打开目录”报错。
+
+## What's new
+
+- Right-click file actions, multi-file uploads, and whole-folder uploads.
+- Compact app cards with readable names and more columns on wider windows.
+- User apps shown by default; system app icons load on request. Sort by name, size, or installation date.
+- Open app details from the three-dot button and browse with the new scrollbar.
+- Phone landscape and tablet landscape presets.
+- Closing a virtual display ends its app tasks by default, keeping them from jumping to the phone screen.
+- Virtual display settings and the last app are remembered per device and editable in Settings.
+- External keyboard mode for tablet displays, using the phone's input method for Chinese. Compatibility varies by phone and input method.
+- Fixed errors when opening local folders.
+
+Windows：EXE / ZIP；macOS：DMG / ZIP；Linux：DEB / tar.gz，均附带 adb 与 scrcpy。
 
 macOS 13.0+，未经 Apple 公证。文件校验见 SHA256SUMS。
 源码：{commit}

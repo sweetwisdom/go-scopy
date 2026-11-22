@@ -7,7 +7,7 @@ import (
 )
 
 func (u *UI) deviceDialogOpen() bool {
-	return u.renameSerial != "" || u.deleteSerial != "" || u.optionsSerial != "" || u.clearAppCache || u.vd.open || u.overviewDetailsSerial != ""
+	return u.apps.menuFor != "" || u.renameSerial != "" || u.deleteSerial != "" || u.optionsSerial != "" || u.clearAppCache || u.vd.open || u.overviewDetailsSerial != ""
 }
 
 func (u *UI) openDeviceEditor(d domain.Device) {
@@ -34,6 +34,7 @@ func (u *UI) dialogDevice(serial string) domain.Device {
 func (u *UI) deviceDialogs(f *flex.Frame) {
 	u.overviewDetailsDialog(f)
 	u.appCacheDialog(f)
+	u.appDetailsDialog(f)
 	u.virtualDisplayCard(f)
 	if u.renameSerial != "" {
 		device := u.dialogDevice(u.renameSerial)

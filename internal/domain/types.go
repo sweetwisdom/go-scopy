@@ -43,17 +43,46 @@ const (
 	KeyboardUHID = "uhid"
 )
 
+// VirtualPreferences are saved separately from live sessions and their IDs.
+type VirtualPreferences struct {
+	Preset            string `json:"preset"`
+	Width             int    `json:"width"`
+	Height            int    `json:"height"`
+	DPI               int    `json:"dpi"`
+	SystemDecorations bool   `json:"systemDecorations"`
+	DestroyOnClose    bool   `json:"destroyOnClose"`
+	IMEPolicy         string `json:"imePolicy,omitempty"`
+	Keyboard          string `json:"keyboard,omitempty"`
+	LastApp           string `json:"lastApp,omitempty"`
+}
+
+func DefaultVirtualPreferences() VirtualPreferences {
+	return VirtualPreferences{Preset: "portrait", Width: 1080, Height: 2400, DPI: 420, SystemDecorations: true, DestroyOnClose: true}
+}
+
 type Settings struct {
-	ScreenPreviewIntervalSeconds int                `json:"screenPreviewIntervalSeconds"`
-	Theme                        string             `json:"theme"`
-	ADBPath                      string             `json:"adbPath,omitempty"`
-	ScrcpyPath                   string             `json:"scrcpyPath,omitempty"`
-	OutputDir                    string             `json:"outputDir"`
-	AppExportDir                 string             `json:"appExportDir,omitempty"`
-	Defaults                     Options            `json:"defaults"`
-	Devices                      map[string]Options `json:"devices,omitempty"`
-	DeviceNames                  map[string]string  `json:"deviceNames,omitempty"`
-	SavedWireless                map[string]bool    `json:"savedWireless,omitempty"`
+	VirtualDefaults              VirtualPreferences            `json:"virtualDisplayDefaults"`
+	VirtualDevices               map[string]VirtualPreferences `json:"virtualDisplayDevices,omitempty"`
+	ScreenPreviewIntervalSeconds int                           `json:"screenPreviewIntervalSeconds"`
+	Theme                        string                        `json:"theme"`
+	ADBPath                      string                        `json:"adbPath,omitempty"`
+	ScrcpyPath                   string                        `json:"scrcpyPath,omitempty"`
+	OutputDir                    string                        `json:"outputDir"`
+	AppExportDir                 string                        `json:"appExportDir,omitempty"`
+	Defaults                     Options                       `json:"defaults"`
+	Devices                      map[string]Options            `json:"devices,omitempty"`
+	DeviceNames                  map[string]string             `json:"deviceNames,omitempty"`
+	SavedWireless                map[string]bool               `json:"savedWireless,omitempty"`
+}
+
+func (s Settings) VirtualOptionsFor(serial string) VirtualPreferences {
+	if p, ok := s.VirtualDevices[serial]; ok {
+		return p
+	}
+	if s.VirtualDefaults == (VirtualPreferences{}) {
+		return DefaultVirtualPreferences()
+	}
+	return s.VirtualDefaults
 }
 
 func (s Settings) OptionsFor(serial string) Options {
@@ -95,7 +124,7 @@ type Session struct {
 type VirtualDisplay struct {
 	Width, Height, DPI int
 	SystemDecorations  bool // default true
-	DestroyOnClose     bool // default false: content moves to the main screen
+	DestroyOnClose     bool // UI defaults true: finish virtual-display tasks on close
 	IMEPolicy          string
 	StartApp           string // package name; required
 	ReturnHome         bool   // shortcut: return display 0 home only after this app is resumed on a secondary display
@@ -151,6 +180,7 @@ type AppInfo struct {
 	VersionName string
 	VersionCode string
 	SizeBytes   int64
+	InstalledAt time.Time
 	System      bool
 	APKPath     string // base.apk; where the label, icon and export come from
 }
